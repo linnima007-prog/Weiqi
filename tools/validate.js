@@ -98,6 +98,10 @@ LESSONS.forEach(lesson => {
           const added = delta.filter(d => d.from === GO.EMPTY && d.to !== GO.EMPTY);
           const removed = delta.filter(d => d.from !== GO.EMPTY && d.to === GO.EMPTY);
           if (added.length > 1) report(lesson.id, fl + '：一帧新增了 ' + added.length + ' 颗棋子（应每次只下 1 颗，除非是提子回合的瞬时）');
+          // mark 应落在本帧新增的棋子上（恰好新增 1 颗时）
+          if (f.mark != null && added.length === 1 && f.mark !== added[0].i) {
+            report(lesson.id, fl + '：mark=' + f.mark + ' 与本帧新增棋子 (' + (Math.floor(added[0].i / 9) + 1) + ',' + (added[0].i % 9 + 1) + ') 不一致');
+          }
         }
         prev = { grid: board.grid.slice() };
       });
