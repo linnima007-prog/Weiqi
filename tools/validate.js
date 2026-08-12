@@ -373,6 +373,21 @@ console.log('=== 新课（21-40）针对性校验 ===');
     console.log('  L36 劫争：白立刻回提(2,2) 合法?=' + koLegal);
     if (koLegal) report(36, '劫争：白不应能立刻回提劫(2,2)');
   })();
+  // 征子判定（go-core.ladderSucceeds，AI 避征子依赖）
+  (function () {
+    const cases = [
+      ['无引征(L11局面)', 'W 5,5 B 5,6 6,5 4,4 4,3 4,5', 40, true],
+      ['有引征(接应子在路线(7,2)上)', 'W 5,5 7,2 B 5,6 6,5 4,4 4,3 4,5', 40, false],
+      ['普通打吃(可逃)', 'W 5,5 B 4,5 5,6 6,5', 40, false],
+      ['角部无处可逃', 'W 1,2 B 2,2 1,3', 1, true],
+    ];
+    cases.forEach(([name, setup, idx, expect]) => {
+      const b = parseGrid(setup);
+      const r = b.ladderSucceeds(idx);
+      console.log('  征子判定·' + name + '：ladderSucceeds=' + r + '（应=' + expect + '）');
+      if (r !== expect) report('AI', '征子判定错误：' + name + ' 应=' + expect + ' 实际=' + r);
+    });
+  })();
 })();
 
 // ============ move 步骤模拟：按预期落子并调用 check ============

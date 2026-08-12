@@ -208,6 +208,54 @@
       }
       return false;
     }
+
+    /** 征子判定：位于 i 的棋块（当前只剩 1 气）若逃跑，是否会被对方征死。
+     *  递归模拟：逃跑方每手只能下唯一的气（被迫），攻击方枚举所有“安全的打吃手”
+     * （对方剩 1 气且自身块气≥2，不是送吃），存在一条追杀到底的路线即征死。
+     *  返回 true = 逃不掉（应弃子），false = 能逃掉（气变多、连上引征子或对方无安全打吃手）。 */
+    ladderSucceeds(i) {
+      const size = this.size, victim = this.grid[i];
+      if (victim === EMPTY) return false;
+      const attacker = 3 - victim;
+      const MAXDEPTH = size * size;
+      const libsOf = (grid, cur) => {
+        const b = new GoBoard(size); b.grid = grid;
+        return GoBoard.libertiesOf(grid, size, b.groupOf(cur));
+      };
+      const tryPlay = (grid, color, idx) => {
+        const b = new GoBoard(size); b.grid = grid.slice();
+        if (!b.isLegal(color, idx)) return null;
+        const r = b.play(color, idx);
+        return r.ok ? { grid: b.grid, captured: r.captured || [] } : null;
+      };
+      // search：victim 方被打吃（1 气），轮到 victim 逃；返回 true = 攻击方必胜
+      const search = (grid, cur, depth) => {
+        if (depth > MAXDEPTH) return true; // 兜底：棋盘有限，追杀到底算征死
+        const libs = libsOf(grid, cur);
+        if (libs.length === 0) return true;  // 已被提
+        if (libs.length !== 1) return false; // 不在被打吃状态
+        // 逃跑方被迫下唯一的气
+        const esc = tryPlay(grid, victim, libs[0]);
+        if (!esc) return true;               // 无处可逃（如劫争限制）
+        if (esc.captured.length) return false; // 逃跑时反提对方，征子崩溃
+        const libs2 = libsOf(esc.grid, cur);
+        if (libs2.length >= 3) return false; // 气变多（如连上引征子），逃掉
+        if (libs2.length === 1) {            // 长完仍只有 1 气：攻击方收气即提
+          return tryPlay(esc.grid, attacker, libs2[0]) !== null;
+        }
+        // 2 气：攻击方枚举所有安全的打吃手，任一能追杀到底即胜
+        for (const c of libs2) {
+          const p = tryPlay(esc.grid, attacker, c);
+          if (!p) continue;
+          if (libsOf(p.grid, cur).length !== 1) continue; // 没形成打吃
+          const bg = new GoBoard(size); bg.grid = p.grid;
+          if (bg.liberties(c).length < 2) continue;       // 打吃手自身会被立即回提，属送吃
+          if (search(p.grid, cur, depth + 1)) return true;
+        }
+        return false;
+      };
+      return search(this.grid.slice(), i, 0);
+    }
   }
 
   global.GoBoard = GoBoard;

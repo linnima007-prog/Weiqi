@@ -538,11 +538,16 @@
           }
           if (move !== null) break;
         }
-        // 2. 逃命（自己的棋被打吃）
+        // 2. 逃命（自己的棋被打吃；但落入征子逃也白逃的，果断弃子不逃）
         if (move === null) {
+          const checked = new Set();
           for (const i of legal) {
             for (const n of board.neighbors(i)) {
-              if (board.grid[n] === ai && board.liberties(n).length === 1) { move = i; break; }
+              if (board.grid[n] !== ai || checked.has(n)) continue;
+              board.groupOf(n).forEach(x => checked.add(x));
+              if (board.liberties(n).length !== 1) continue;
+              if (board.ladderSucceeds(n)) continue; // 会被征死，弃子
+              move = i; break;
             }
             if (move !== null) break;
           }
