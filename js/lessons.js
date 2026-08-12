@@ -1387,11 +1387,17 @@
           playerColor: GO.WHITE,
           setup: 'B 1,2 2,1 3,2 2,3 8,8 W 1,3 3,3 2,4 8,9 9,8',
           ko: 10,
-          objective: '现在轮到你执白。先试试直接点 (2,2) 提回——程序会告诉你这是打劫，不允许。然后请在别处落子<b>找劫材</b>。',
-          hint: '先点 (2,2) 看提示，然后选一个别的位置落子（找劫材）。',
-          check: ({ lastMove }) => {
-            if (lastMove !== null) return { done: true, successMsg: '很好！你选择了先找劫材——正是赢下劫争的正确方法。' };
-            return { done: false };
+          objective: '现在轮到你执白。先试试直接点 (2,2) 提回——程序会告诉你这是打劫，不允许。然后请在别处落子<b>找劫材</b>：下一手能<b>打吃黑棋 (8,8)</b> 的棋，逼黑棋应劫。',
+          hint: '先点 (2,2) 看提示；黑棋 (8,8) 的气在 (7,8) 和 (8,7)，下在其中一处就能打吃它——这才是劫材。',
+          check: ({ board, lastMove }) => {
+            if (lastMove === null) return { done: false };
+            // 劫材判定：落子后黑棋 (8,8)【0-idx 70】只剩 1 口气（被打吃），黑棋不得不应
+            const threat = board.grid[70] === GO.BLACK && board.liberties(70).length === 1;
+            return {
+              done: threat,
+              hint: threat ? null : '这手棋没有威胁到黑棋，黑棋不用应——不是劫材。请下在 (7,8) 或 (8,7)，打吃黑棋 (8,8)。',
+              successMsg: threat ? '很好！你打吃了黑棋 (8,8)，黑棋必须应劫——应劫之后打劫限制解除，你就能回来提劫了。这就是“找劫材”！' : null
+            };
           }
         }
       ]

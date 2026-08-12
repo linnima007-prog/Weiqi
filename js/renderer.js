@@ -70,12 +70,13 @@
     }
 
     // 棋子
+    const flashPts = opts.flash == null ? null : (Array.isArray(opts.flash) ? opts.flash : [opts.flash]);
     for (let i = 0; i < board.grid.length; i++) {
       const v = board.grid[i];
       if (v === GO.EMPTY) continue;
       const r = Math.floor(i / size), col = i % size;
       const x = PAD + col * cell, y = PAD + r * cell;
-      if (i === opts.flash) {
+      if (flashPts && flashPts.includes(i)) {
         // 淡出效果（演示提子）
         c.globalAlpha = (opts.flashAlpha != null) ? opts.flashAlpha : 1;
         drawStone(c, x, y, cell * 0.46, v);
