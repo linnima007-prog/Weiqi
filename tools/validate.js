@@ -40,6 +40,7 @@ function checkHighlights(board, highlights, label) {
     if (h.i == null) return;
     if (h.i < 0 || h.i >= 81) { report(board.__lessonId, label + '：高亮索引 ' + h.i + ' 越界'); return; }
     if (h.style === 'capture') return; // capture 样式专门标记棋子（将被提的子），允许落在棋子上
+    if (h.style === 'mark') return;    // mark 样式专门标记棋子（如引征子），允许落在棋子上
     if (board.grid[h.i] !== GO.EMPTY) {
       report(board.__lessonId, label + '：高亮 ' + h.i + '（' + (Math.floor(h.i / 9) + 1) + ',' + (h.i % 9 + 1) + '）落在棋子上了');
     }
@@ -338,15 +339,26 @@ console.log('=== 新课（21-40）针对性校验 ===');
     console.log('  L24 打二还一：黑提2子 → 白回提1子 合法 → 黑立刻再提合法?=' + backLegal + '（应为 false）');
     if (backLegal) report(24, '打二还一：白还一后黑不应能立刻再提 (3,2)');
   })();
-  // L25 引征：白逃到 (5,3) 与引征子 (4,3) 连上（气≥2，征不动）
+  // L25 引征：有引征局面征子应失败；无引征局面（move 步骤）征子应成立；demo 末帧白连上引征子
   (function () {
     const lesson = LESSONS.find(l => l.id === 25);
-    const setup = lesson.steps.find(s => s.type === 'demo').frames[4].board;
-    const b = new GoBoard(9); b.grid = parseSetup(setup);
-    const g = b.groupOf(38); // 白 (5,3)
-    const gl = GoBoard.libertiesOf(b.grid, 9, g);
-    console.log('  L25 引征：白逃(5,3)后白块=' + g.length + ' 子 气=' + gl.length);
-    if (g.length < 3 || gl.length < 2) report(25, '引征：白逃(5,3)应与(4,3)连上且气≥2，实际块=' + g.length + ' 气=' + gl.length);
+    const quiz = lesson.steps.find(s => s.type === 'quiz');
+    const bq = parseGrid(quiz.setup); // 有引征（接应子在 (7,2)）
+    const rQ = bq.ladderSucceeds(40);
+    console.log('  L25 引征：有引征局面 ladderSucceeds=' + rQ + '（应=false）');
+    if (rQ) report(25, '引征：有引征时征子应失败（引征子须在有效追杀路线上）');
+    const mv = lesson.steps.find(s => s.type === 'move');
+    const bm = parseGrid(mv.setup);
+    bm.play(GO.BLACK, 31); // 黑 (4,5) 打吃后，无引征
+    const rM = bm.ladderSucceeds(40);
+    console.log('  L25 引征：无引征局面 ladderSucceeds=' + rM + '（应=true）');
+    if (!rM) report(25, '引征：无引征时征子应成立');
+    const frames = lesson.steps.find(s => s.type === 'demo').frames;
+    const bf = parseGrid(frames[frames.length - 1].board);
+    const g = bf.groupOf(56); // 白 (7,3)
+    const gl = GoBoard.libertiesOf(bf.grid, 9, g);
+    console.log('  L25 引征：demo 末帧白块=' + g.length + ' 子 气=' + gl.length + ' 连上引征子(7,2)=' + g.includes(55));
+    if (!g.includes(55) || gl.length < 3) report(25, '引征：末帧白逃(7,3)应与引征子(7,2)连上且气≥3，实际块=' + g.length + ' 气=' + gl.length);
   })();
   // L29 同气对杀：黑白各 4 气，黑下 (4,3) 紧气后白 3 气（先走者抢先机）
   (function () {

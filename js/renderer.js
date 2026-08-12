@@ -146,6 +146,21 @@
           c.lineWidth = 3;
           c.beginPath(); c.arc(hx, hy, rad, 0, Math.PI * 2); c.stroke();
           c.restore();
+        } else if (style === 'mark') {
+          // 标记某颗棋子（如引征子）：金色发光圆环 + 下方文字标签
+          c.save();
+          c.shadowColor = 'rgba(243, 156, 18, 0.95)';
+          c.shadowBlur = 12;
+          c.strokeStyle = '#f39c12';
+          c.lineWidth = 3;
+          c.beginPath(); c.arc(hx, hy, rad, 0, Math.PI * 2); c.stroke();
+          c.restore();
+          if (h.label != null) {
+            c.fillStyle = '#f39c12';
+            c.font = 'bold 12px sans-serif';
+            c.textAlign = 'center'; c.textBaseline = 'middle';
+            c.fillText(String(h.label), hx, hy + rad + 8);
+          }
         } else if (style === 'territory') {
           // 地盘：半透明色块 + 圆环（颜色由 h.color 指定，如黑地绿/白地蓝）
           const col = h.color || '#2ecc71';
