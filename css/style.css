@@ -146,6 +146,21 @@ body {
 .dot.done { background: #27ae60; color: #fff; }
 
 .step-panel { margin-bottom: 18px; }
+
+/* 固定文字/演示区高度，内部滚动——棋盘位置不随文本长短变化 */
+.step-scroll {
+  height: 260px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.step-scroll::-webkit-scrollbar { width: 6px; }
+.step-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+@media (max-width: 600px) {
+  .step-scroll { height: 220px; }
+}
 .step-text {
   font-size: 15px;
   line-height: 1.8;
