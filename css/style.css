@@ -147,19 +147,9 @@ body {
 
 .step-panel { margin-bottom: 18px; }
 
-/* 题目/演示区在棋盘下方：固定高度、内部滚动——先看棋盘再答题，无需上下滚动 */
+/* 题目/演示区在棋盘下方：内容全部展开，不做内部滚动 */
 .step-scroll {
-  height: 260px;
-  overflow-y: auto;
   margin-bottom: 14px;
-  padding-right: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-.step-scroll::-webkit-scrollbar { width: 6px; }
-.step-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-@media (max-width: 600px) {
-  .step-scroll { height: 220px; }
 }
 .step-text {
   font-size: 15px;
