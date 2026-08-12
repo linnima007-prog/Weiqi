@@ -147,7 +147,7 @@ body {
 
 .step-panel { margin-bottom: 18px; }
 
-/* 固定文字/演示区高度，内部滚动——棋盘位置不随文本长短变化 */
+/* 题目/演示区在棋盘下方：固定高度、内部滚动——先看棋盘再答题，无需上下滚动 */
 .step-scroll {
   height: 260px;
   overflow-y: auto;
