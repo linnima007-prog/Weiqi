@@ -33,7 +33,8 @@
     freeEnded: false,
     freeEmbedded: false,     // 是否处于第10课嵌入式对局
     aiThinking: false,
-    showingTerritory: false   // 数地后是否在棋盘上标出地盘
+    showingTerritory: false,   // 数地后是否在棋盘上标出地盘
+    lastGameResult: null     // 最近一次数地结果（'黑'/'白'/'和'），用于毕业测试结算
   };
 
   // 进度持久化：{ lessonId: true }
@@ -433,8 +434,16 @@
     progress[LESSONS[LESSONS.length - 1].id] = true;
     saveProgress();
     renderLessonList();
+    // 毕业测试的对局结果（玩家执黑）
+    const res = app.lastGameResult;
+    let resultHtml = '';
+    if (res === '黑') resultHtml = '<p>🏆 毕业测试你<b>战胜了电脑</b>——实至名归，干得漂亮！</p>';
+    else if (res === '白') resultHtml = '<p>毕业测试输给了电脑——没关系，完成即毕业，去自由对局多下几盘找回来！</p>';
+    else if (res === '和') resultHtml = '<p>毕业测试下成了和棋——势均力敌的一局！</p>';
     showModal(
-      '<h3>🎉 恭喜你完成了全部 ' + LESSONS.length + ' 课！</h3>' +
+      '<h3>🎓 毕业啦！</h3>' +
+      '<p>你完成了全部 ' + (LESSONS.length - 1) + ' 课和毕业测试。</p>' +
+      resultHtml +
       '<p>你已掌握：气、提子、禁入点、连接切断、打劫、死活、征子、枷吃、双叫吃、倒扑、对杀、手筋、定式与官子思路。</p>' +
       '<p>接下来多下棋、多做死活题，棋力会一点点涨起来。去自由对局挑战电脑，或和朋友对弈吧！</p>'
     );
@@ -604,6 +613,7 @@
     const blackTotal = s.b + t.black;
     const whiteTotal = s.w + t.white + KOMI;
     const winner = blackTotal > whiteTotal ? '黑' : (whiteTotal > blackTotal ? '白' : '和');
+    app.lastGameResult = winner;
     // 在棋盘上画出双方地盘（黑地绿、白地蓝），结果面板显示在棋盘旁边，不遮挡棋盘
     app.showingTerritory = true;
     drawBoard(canvasFree, b, { last: app.freeLast, highlights: territoryHighlights() });
@@ -624,12 +634,24 @@
   $('btnScoreClose').addEventListener('click', hideScorePanel);
   $('btnScoreFinish').addEventListener('click', () => {
     hideScorePanel();
-    app.freeEmbedded = false;
-    progress[10] = true;
+    const isLast = app.lesson === LESSONS.length - 1;
+    progress[LESSONS[app.lesson].id] = true;   // 完成当前课（不再写死第10课）
     saveProgress();
-    app.lesson = 10;
-    app.step = 0;
-    switchMode('tutorial');
+    app.freeEmbedded = false;
+    if (!isLast) {
+      app.lesson++;
+      app.step = 0;
+      switchMode('tutorial');
+    } else {
+      // 毕业测试完成：回到教程界面并弹出毕业结算（不重新进入对局）
+      app.mode = 'tutorial';
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === 'tutorial'));
+      $('freePanel').classList.add('hidden');
+      $('freeBanner').classList.add('hidden');
+      $('tutorialPanel').classList.remove('hidden');
+      renderLessonList();
+      showCompletion();
+    }
   });
 
   // 自由棋盘事件
