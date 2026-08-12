@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>围棋学堂 · 新手教程</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">⚫⚪</span>围棋学堂</div>
+  <nav class="tabs">
+    <button class="tab active" data-mode="tutorial">📖 新手教程</button>
+    <button class="tab" data-mode="free">🎮 自由对局</button>
+  </nav>
+</header>
+
+<main class="layout">
+  <!-- 左侧课程目录 -->
+  <aside class="sidebar">
+    <h3>课程目录</h3>
+    <ul id="lessonList"></ul>
+    <div class="progress-line">
+      <div id="progressFill" class="progress-fill"></div>
+    </div>
+    <p id="progressText" class="progress-text"></p>
+  </aside>
+
+  <!-- 右侧主区域 -->
+  <section class="main-panel">
+
+    <!-- 教程面板 -->
+    <div id="tutorialPanel">
+      <div class="lesson-header">
+        <h2 id="lessonTitle"></h2>
+        <div id="stepDots"></div>
+      </div>
+      <div id="stepPanel" class="step-panel"></div>
+      <div id="demoArea" class="demo-area hidden">
+        <p id="demoCaption" class="demo-caption"></p>
+        <div id="demoDots" class="demo-dots"></div>
+        <button id="btnReplay" class="btn">⏪ 重播</button>
+      </div>
+      <div class="board-wrap">
+        <canvas id="boardCanvas" width="480" height="480"></canvas>
+      </div>
+      <div id="hintBox" class="hint hidden"></div>
+      <div id="messageBox" class="message hidden"></div>
+      <div class="controls" id="tutorialControls">
+        <button id="btnHint" class="btn">💡 提示</button>
+        <button id="btnRestartStep" class="btn">🔄 重做本步</button>
+        <button id="btnNext" class="btn primary hidden">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- 自由对局面板 -->
+    <div id="freePanel" class="hidden">
+      <div class="free-header">
+        <h2>自由对局</h2>
+        <select id="freeMode" class="select">
+          <option value="ai">🤖 人机对弈（你执黑）</option>
+          <option value="2p">👥 双人对弈</option>
+        </select>
+      </div>
+      <p id="freeBanner" class="free-banner hidden"></p>
+      <div id="freeInfo" class="status"></div>
+      <div class="free-game">
+        <div class="board-wrap">
+          <canvas id="boardCanvasFree" width="480" height="480"></canvas>
+        </div>
+        <div id="scorePanel" class="score-panel hidden">
+          <h3>🔢 数地结果</h3>
+          <p class="score-legend">棋盘上：<b style="color:#2ecc71">● 绿色</b> = 黑棋地盘，<b style="color:#3498db">● 蓝色</b> = 白棋地盘</p>
+          <table id="scoreTable" class="score-table"></table>
+          <p id="scoreWinner" class="winner-line"></p>
+          <p class="score-note">注：用“棋子 + 围住空点”的简易计地法，实战中还需处理死子。</p>
+          <button id="btnScoreClose" class="btn">收起结果</button>
+          <button id="btnScoreFinish" class="btn primary hidden">完成最后一课 ▶</button>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="btnUndo" class="btn">↩️ 悔棋</button>
+        <button id="btnPassFree" class="btn">⏭ 放弃一手</button>
+        <button id="btnNew" class="btn">🔄 新局</button>
+        <button id="btnScore" class="btn primary">🔢 数地</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 弹窗 -->
+<div id="modal" class="modal hidden">
+  <div class="modal-content">
+    <div id="modalBody"></div>
+    <button id="modalClose" class="btn primary">确定</button>
+  </div>
+</div>
+
+<script src="js/go-core.js"></script>
+<script src="js/lessons.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
