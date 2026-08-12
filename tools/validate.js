@@ -400,6 +400,71 @@ console.log('=== 新课（21-40）针对性校验 ===');
       if (r !== expect) report('AI', '征子判定错误：' + name + ' 应=' + expect + ' 实际=' + r);
     });
   })();
+  // L21/L22/L26/L27/L30：吃子路线与对杀局面的引擎级验证
+  (function () {
+    const BLACK = GO.BLACK, WHITE = GO.WHITE;
+    // L21 虎口：白下进虎口 (4,5) 应只剩 1 气；关门吃黑 (5,4) 应提白 (4,4)
+    (function () {
+      const b = parseGrid('B 4,4 4,6 5,5');
+      b.play(WHITE, 31);
+      const libs = b.liberties(31).length;
+      console.log('  L21 虎口：白入虎口后气=' + libs + '（应=1）');
+      if (libs !== 1) report(21, '虎口：白下进虎口后应只剩 1 气，实际=' + libs);
+      const b2 = parseGrid('W 4,4 B 3,4 4,3 4,5');
+      const r = b2.play(BLACK, 39);
+      const ok = r.captured && r.captured.length === 1 && r.captured.includes(30);
+      console.log('  L21 关门吃：黑(5,4)提子=' + (r.captured || []).length + '（应=1 且为白(4,4)）');
+      if (!ok) report(21, '关门吃：黑(5,4)应恰好提掉白(4,4)');
+    })();
+    // L22 抱吃：正确方向 (5,4) 白逃 (4,5) 后仍 1 气、黑 (4,6) 一步提 2 子；错误方向 (4,5) 白逃后气≥2
+    (function () {
+      const b = parseGrid('B 3,4 4,3 3,5 5,5 W 4,4');
+      b.play(BLACK, 39); // 黑 (5,4)
+      const l1 = b.liberties(30).length;
+      b.play(WHITE, 31); // 白逃 (4,5)
+      const l2 = b.liberties(30).length;
+      const r = b.play(BLACK, 32); // 黑 (4,6) 提
+      const cap = (r.captured || []).length;
+      console.log('  L22 抱吃：黑(5,4)后白气=' + l1 + ' 逃后气=' + l2 + ' 黑(4,6)提=' + cap + '（应=1/1/2）');
+      if (l1 !== 1 || l2 !== 1 || cap !== 2) report(22, '抱吃：正确方向应 1气→逃后仍1气→一步提2子');
+      const w = parseGrid('B 3,4 4,3 3,5 5,5 W 4,4');
+      w.play(BLACK, 31); // 错误方向 (4,5)
+      w.play(WHITE, 39); // 白逃 (5,4)
+      const l3 = w.liberties(30).length;
+      console.log('  L22 抱吃：错误方向白逃后气=' + l3 + '（应≥2，跑掉了）');
+      if (l3 < 2) report(22, '抱吃：错误方向应让白棋跑出（气≥2），实际=' + l3);
+    })();
+    // L26 边线：角上黑 (2,2) 被两边紧后气=2；move 局面白 (2,2) 气=1，黑 (3,2) 提子
+    (function () {
+      const b = parseGrid('B 2,2 W 1,2 2,1');
+      const l1 = b.liberties(10).length;
+      console.log('  L26 边线：角上棋子被紧后气=' + l1 + '（应=2）');
+      if (l1 !== 2) report(26, '边线：角上棋子被两边紧后应剩 2 气，实际=' + l1);
+      const b2 = parseGrid('W 2,2 B 1,2 2,1 1,1 2,3');
+      const l2 = b2.liberties(10).length;
+      const r = b2.play(BLACK, 19);
+      const cap = (r.captured || []).length;
+      console.log('  L26 边线：白(2,2)气=' + l2 + ' 黑(3,2)提=' + cap + '（应=1/1）');
+      if (l2 !== 1 || cap !== 1) report(26, '边线：白(2,2)应只剩 1 气且黑(3,2)提掉');
+    })();
+    // L27 长气：黑两块前气=2，长 (4,3) 后气≥3
+    (function () {
+      const b = parseGrid('B 4,4 4,5 W 3,4 3,5 5,4 5,5');
+      const l1 = b.liberties(30).length;
+      b.play(BLACK, 29);
+      const l2 = b.liberties(30).length;
+      console.log('  L27 长气：长气前=' + l1 + ' 长气后=' + l2 + '（应=2/≥3）');
+      if (l1 !== 2 || l2 < 3) report(27, '长气：黑长(4,3)后气应≥3，实际=' + l2);
+    })();
+    // L30 有眼杀无眼：(1,1) 是黑真眼；白下进去是禁入点
+    (function () {
+      const b = parseGrid('B 1,2 2,1 2,2 3,1 3,2 W 4,1 4,2');
+      const eye = b.eyePoints(BLACK).includes(0);
+      const legal = b.isLegal(WHITE, 0);
+      console.log('  L30 有眼杀无眼：(1,1)是黑眼=' + eye + ' 白下入合法=' + legal + '（应=true/false）');
+      if (!eye || legal) report(30, '有眼杀无眼：(1,1)应为黑真眼且白下入非法');
+    })();
+  })();
 })();
 
 // ============ move 步骤模拟：按预期落子并调用 check ============
