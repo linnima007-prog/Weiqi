@@ -147,16 +147,17 @@
           c.beginPath(); c.arc(hx, hy, rad, 0, Math.PI * 2); c.stroke();
           c.restore();
         } else if (style === 'mark') {
-          // 标记某颗棋子（如引征子）：金色发光圆环 + 下方文字标签
+          // 标记某颗棋子（如引征子）：蓝色发光圆环 + 下方文字标签
+          // （选蓝色是因为与木色棋盘/星位对比度高，更清晰易辨）
           c.save();
-          c.shadowColor = 'rgba(243, 156, 18, 0.95)';
+          c.shadowColor = 'rgba(33, 150, 243, 0.95)';
           c.shadowBlur = 12;
-          c.strokeStyle = '#f39c12';
+          c.strokeStyle = '#2196f3';
           c.lineWidth = 3;
           c.beginPath(); c.arc(hx, hy, rad, 0, Math.PI * 2); c.stroke();
           c.restore();
           if (h.label != null) {
-            c.fillStyle = '#f39c12';
+            c.fillStyle = '#2196f3';
             c.font = 'bold 12px sans-serif';
             c.textAlign = 'center'; c.textBaseline = 'middle';
             c.fillText(String(h.label), hx, hy + rad + 8);

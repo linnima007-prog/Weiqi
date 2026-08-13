@@ -113,7 +113,10 @@
   // ---------------- 演示动画（demo 步骤） ----------------
   let demoTok = 0;
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-  function cancelDemo() { demoTok++; } // 使正在进行的 runDemo 在下一个 await 处退出
+  function cancelDemo() {
+    demoTok++; // 使正在进行的 runDemo 在下一个 await 处退出
+    if (app._demoNextCleanup) { app._demoNextCleanup(); app._demoNextCleanup = null; } // 清理"下一帧"按钮监听
+  }
   function buildDemoHighlights(f) {
     const out = [];
     // highlightLibs 可为单个坐标或数组（多个棋块分别标气）
@@ -135,6 +138,7 @@
       wrap.children[i].className = 'demo-dot' + (i === idx ? ' active' : '') + (i < idx ? ' done' : '');
     }
   }
+  // 提子淡出动画（帧内效果，自动播放；播放完后停留等待玩家点"下一帧"）
   async function flashStone(idx, ms, tok) {
     const start = performance.now();
     await new Promise(resolve => {
@@ -148,10 +152,29 @@
       requestAnimationFrame(loop);
     });
   }
+  // 等待玩家点击"下一帧"按钮（手动播放，不再自动切帧）
+  function waitForDemoNext() {
+    return new Promise(resolve => {
+      const btn = $('btnDemoNext');
+      btn.classList.remove('hidden');
+      const cleanup = () => {
+        btn.classList.add('hidden');
+        btn.removeEventListener('click', handler);
+        if (app._demoNextCleanup === cleanup) app._demoNextCleanup = null;
+      };
+      function handler() { cleanup(); resolve(); }
+      app._demoNextCleanup = cleanup;
+      btn.addEventListener('click', handler);
+    });
+  }
   async function runDemo(step) {
     const tok = ++demoTok;
     const frames = step.frames || [];
     const cap = $('demoCaption');
+    const next = $('btnNext');
+    next.classList.add('hidden');
+    $('btnReplay').classList.add('hidden');
+    $('btnDemoNext').classList.add('hidden');
     for (let i = 0; i < frames.length; i++) {
       if (demoTok !== tok) return;
       const f = frames[i];
@@ -159,16 +182,16 @@
       if (cap) cap.innerHTML = f.text || '';
       updateDemoDots(i);
       drawBoard(canvas, app.board, { highlights: buildDemoHighlights(f), last: f.mark != null ? f.mark : -1 });
+      // 帧内动画（提子淡出）自动播完，然后停留等待玩家点击"下一帧"
       if (f.flash != null) {
         await flashStone(f.flash, f.flashMs || 1500, tok);
-      } else {
-        await sleep(f.duration || 2200);
+        if (demoTok !== tok) return;
       }
+      await waitForDemoNext();
       if (demoTok !== tok) return;
     }
     if (demoTok !== tok) return;
     updateDemoDots(frames.length - 1);
-    const next = $('btnNext');
     next.textContent = '继续 →';
     next.classList.remove('hidden');
     $('btnReplay').classList.remove('hidden');
@@ -329,6 +352,7 @@
         wrap.appendChild(d);
       });
       $('btnReplay').classList.add('hidden');
+      $('btnDemoNext').classList.add('hidden');
       $('btnHint').classList.add('hidden');
       $('btnRestartStep').classList.add('hidden');
       runDemo(step);
@@ -398,7 +422,7 @@
   canvas.addEventListener('mousemove', e => {
     if (app.mode !== 'tutorial' || app.freeEmbedded) return;
     const step = LESSONS[app.lesson].steps[app.step];
-    if (step.type === 'visual') return; // 由动画循环负责绘制
+    if (step.type === 'visual' || step.type === 'demo') return; // 演示/动画步骤由各自绘制流程负责
     if (step.type !== 'move' || app.stepDone) { drawBoard(canvas, app.board, { last: app.lastMove, highlights: stepHighlights(step) }); return; }
     const i = canvasToIntersection(canvas, e);
     const illegal = i >= 0 && app.board.grid[i] === GO.EMPTY && !app.board.isLegal(app.turn, i);
@@ -406,7 +430,9 @@
     drawBoard(canvas, app.board, { hover: i, last: app.lastMove, hoverColor: app.turn, illegal: !!illegal, highlights: stepHighlights(step) });
   });
   canvas.addEventListener('mouseleave', () => {
-    drawBoard(canvas, app.board, { last: app.lastMove, highlights: stepHighlights(LESSONS[app.lesson].steps[app.step]) });
+    const step = LESSONS[app.lesson].steps[app.step];
+    if (step.type === 'demo') return; // demo 画面由 runDemo 控制，避免重绘干扰帧内淡出
+    drawBoard(canvas, app.board, { last: app.lastMove, highlights: stepHighlights(step) });
   });
 
   // 教程按钮
