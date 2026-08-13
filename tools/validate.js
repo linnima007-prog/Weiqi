@@ -358,11 +358,19 @@ console.log('=== 新课（21-40）针对性校验 ===');
     console.log('  L25 引征：无引征局面 ladderSucceeds=' + rM + '（应=true）');
     if (!rM) report(25, '引征：无引征时征子应成立');
     const frames = lesson.steps.find(s => s.type === 'demo').frames;
-    const bf = parseGrid(frames[frames.length - 1].board);
-    const g = bf.groupOf(56); // 白 (7,3)
-    const gl = GoBoard.libertiesOf(bf.grid, 9, g);
-    console.log('  L25 引征：demo 末帧白块=' + g.length + ' 子 气=' + gl.length + ' 连上引征子(7,2)=' + g.includes(55));
+    // 有引征路线的最后一帧：白 (7,3) 与引征子 (7,2) 同时在盘上（demo 尾部还有无引征对比帧）
+    const fConn = frames.filter(f => f.board).map(f => parseGrid(f.board))
+      .filter(bg => bg.grid[55] === GO.WHITE && bg.grid[56] === GO.WHITE).pop();
+    const g = fConn.groupOf(56); // 白 (7,3)
+    const gl = GoBoard.libertiesOf(fConn.grid, 9, g);
+    console.log('  L25 引征：有引征末帧白块=' + g.length + ' 子 气=' + gl.length + ' 连上引征子(7,2)=' + g.includes(55));
     if (!g.includes(55) || gl.length < 3) report(25, '引征：末帧白逃(7,3)应与引征子(7,2)连上且气≥3，实际块=' + g.length + ' 气=' + gl.length);
+    // 无引征对比末帧：白 (7,3) 连不上任何接应，黑 (8,3) 打吃后整块仍只剩 1 气
+    const bf = parseGrid(frames[frames.length - 1].board);
+    const g2 = bf.groupOf(56);
+    const gl2 = GoBoard.libertiesOf(bf.grid, 9, g2);
+    console.log('  L25 引征：无引征末帧白块=' + g2.length + ' 子 气=' + gl2.length + ' 含引征子(7,2)=' + g2.includes(55) + '（应=5/1/false）');
+    if (g2.includes(55) || gl2.length !== 1) report(25, '引征：无引征对比末帧白棋应只剩 1 气且无接应');
   })();
   // L29 同气对杀：黑白各 4 气，黑下 (4,3) 紧气后白 3 气（先走者抢先机）
   (function () {
@@ -438,27 +446,54 @@ console.log('=== 新课（21-40）针对性校验 ===');
       console.log('  L22 抱吃：错误方向白逃后气=' + l3 + '（应≥2，跑掉了）');
       if (l3 < 2) report(22, '抱吃：错误方向应让白棋跑出（气≥2），实际=' + l3);
     })();
-    // L26 边线：角上黑 (2,2) 被两边紧后气=2；move 局面白 (2,2) 气=1，黑 (3,2) 提子
+    // L26 边线：关门(2,3)打吃 → 白逃(1,2)后 2 子整块剩 1 气 → 黑(1,3)提 2 子
     (function () {
-      const b = parseGrid('B 2,2 W 1,2 2,1');
+      const b = parseGrid('W 2,2 B 2,1 3,2 1,1');
       const l1 = b.liberties(10).length;
-      console.log('  L26 边线：角上棋子被紧后气=' + l1 + '（应=2）');
-      if (l1 !== 2) report(26, '边线：角上棋子被两边紧后应剩 2 气，实际=' + l1);
-      const b2 = parseGrid('W 2,2 B 1,2 2,1 1,1 2,3');
-      const l2 = b2.liberties(10).length;
-      const r = b2.play(BLACK, 19);
+      console.log('  L26 边线：白(2,2)初始气=' + l1 + '（应=2）');
+      if (l1 !== 2) report(26, '边线：白(2,2)初始应有 2 气，实际=' + l1);
+      b.play(BLACK, 11); // 黑关门 (2,3)
+      const l2 = b.liberties(10).length;
+      console.log('  L26 边线：黑(2,3)关门后白气=' + l2 + '（应=1，打吃）');
+      if (l2 !== 1) report(26, '边线：黑(2,3)关门后白应只剩 1 气，实际=' + l2);
+      b.play(WHITE, 1); // 白逃 (1,2)
+      const wg = b.groupOf(1);
+      const l3 = GoBoard.libertiesOf(b.grid, 9, wg).length;
+      console.log('  L26 边线：白逃(1,2)后块=' + wg.length + '子 气=' + l3 + '（应=2/1）');
+      if (wg.length !== 2 || l3 !== 1) report(26, '边线：白逃(1,2)后应为 2 子整块且只剩 1 气');
+      const r = b.play(BLACK, 2); // 黑 (1,3) 提子
       const cap = (r.captured || []).length;
-      console.log('  L26 边线：白(2,2)气=' + l2 + ' 黑(3,2)提=' + cap + '（应=1/1）');
-      if (l2 !== 1 || cap !== 1) report(26, '边线：白(2,2)应只剩 1 气且黑(3,2)提掉');
+      console.log('  L26 边线：黑(1,3)提=' + cap + '（应=2）');
+      if (cap !== 2) report(26, '边线：黑(1,3)应提掉 2 颗白子，实际=' + cap);
     })();
-    // L27 长气：黑两块前气=2，长 (4,3) 后气≥3
+    // L27 长气：黑两块前气=2，长 (4,3) 或 (4,6) 后气≥3；紧气：(4,3)打吃 → 白逃(4,6)仍1气 → 黑(4,7)提3子
     (function () {
       const b = parseGrid('B 4,4 4,5 W 3,4 3,5 5,4 5,5');
       const l1 = b.liberties(30).length;
       b.play(BLACK, 29);
       const l2 = b.liberties(30).length;
-      console.log('  L27 长气：长气前=' + l1 + ' 长气后=' + l2 + '（应=2/≥3）');
-      if (l1 !== 2 || l2 < 3) report(27, '长气：黑长(4,3)后气应≥3，实际=' + l2);
+      const b2 = parseGrid('B 4,4 4,5 W 3,4 3,5 5,4 5,5');
+      b2.play(BLACK, 32); // (4,6) 同样应成立
+      const l2b = b2.liberties(30).length;
+      console.log('  L27 长气：长气前=' + l1 + ' 长(4,3)后=' + l2 + ' 长(4,6)后=' + l2b + '（应=2/≥3/≥3）');
+      if (l1 !== 2 || l2 < 3 || l2b < 3) report(27, '长气：黑长(4,3)或(4,6)后气应≥3');
+      const c = parseGrid('W 4,4 4,5 B 3,4 3,5 5,4 5,5 3,6 5,6');
+      const w1 = c.liberties(30).length;
+      c.play(BLACK, 29); // 紧气 (4,3)
+      const w2 = c.liberties(30).length;
+      c.play(WHITE, 32); // 白逃 (4,6)
+      const w3 = c.liberties(30).length;
+      const r = c.play(BLACK, 33); // 黑 (4,7) 提
+      const cap = (r.captured || []).length;
+      console.log('  L27 紧气：白气=' + w1 + '→紧气后=' + w2 + '→逃后=' + w3 + ' 黑(4,7)提=' + cap + '（应=2/1/1/3）');
+      if (w1 !== 2 || w2 !== 1 || w3 !== 1 || cap !== 3) report(27, '紧气：应为 2气→紧气打吃→逃后仍1气→提3子');
+      // 错误方向：黑 (4,6) 紧气后白逃 (4,3) 应有≥2气（跑掉）
+      const w = parseGrid('W 4,4 4,5 B 3,4 3,5 5,4 5,5 3,6 5,6');
+      w.play(BLACK, 32);
+      w.play(WHITE, 29);
+      const wl = w.liberties(30).length;
+      console.log('  L27 紧气：错误方向白逃后气=' + wl + '（应≥2，跑掉了）');
+      if (wl < 2) report(27, '紧气：错误方向应让白棋跑出（气≥2），实际=' + wl);
     })();
     // L30 有眼杀无眼：(1,1) 是黑真眼；白下进去是禁入点
     (function () {
@@ -471,7 +506,7 @@ console.log('=== 新课（21-40）针对性校验 ===');
   })();
 })();
 
-// ============ move 步骤模拟：按预期落子并调用 check ============
+// ============ move 步骤模拟：按预期落子并调用 check（支持多阶段 nextPlayer） ============
 console.log('=== move 步骤模拟（预期落子 → check 必须 done） ===');
 LESSONS.forEach(lesson => {
   lesson.steps.forEach((step, si) => {
@@ -480,24 +515,32 @@ LESSONS.forEach(lesson => {
     b.__lessonId = lesson.id;
     if (step.setup) b.grid = parseSetup(step.setup);
     b.ko = (step.ko != null) ? step.ko : -1;
-    // 尝试所有空点落子，找出能让 check done 的点
-    const targets = [];
-    for (let i = 0; i < 81; i++) {
-      if (b.grid[i] !== GO.EMPTY) continue;
-      const b2 = new GoBoard(9); b2.grid = b.grid.slice(); b2.ko = b.ko;
-      if (!b2.isLegal(step.playerColor, i)) continue;
-      b2.play(step.playerColor, i);
-      const r = step.check({ board: b2, lastMove: i, passed: false });
-      if (r && r.done) targets.push((Math.floor(i / 9) + 1) + ',' + (i % 9 + 1));
-    }
+    // 深度优先搜索一条能让 check 最终 done 的落子路径（阶段内逐手切换 nextPlayer）
+    let found = null;
+    const MAX_DEPTH = 10;
+    (function dfs(board, color, depth, path) {
+      if (found || depth > MAX_DEPTH) return;
+      for (let i = 0; i < 81; i++) {
+        if (found) return;
+        if (board.grid[i] !== GO.EMPTY) continue;
+        const b2 = new GoBoard(9); b2.grid = board.grid.slice(); b2.ko = board.ko;
+        if (!b2.isLegal(color, i)) continue;
+        b2.play(color, i);
+        const r = step.check({ board: b2, lastMove: i, passed: false });
+        const name = (Math.floor(i / 9) + 1) + ',' + (i % 9 + 1);
+        if (r && r.done) { found = path.concat([name]); return; }
+        if (r && r.nextPlayer != null) dfs(b2, r.nextPlayer, depth + 1, path.concat([name]));
+      }
+    })(b, step.playerColor, 0, []);
     // 若该步骤允许放弃，也试 passed
     let passOk = false;
     const p = step.check({ board: b, lastMove: null, passed: true });
     if (p && p.done) passOk = true;
-    if (targets.length === 0 && !passOk) {
-      report(lesson.id, '步骤' + (si + 1) + '(move)：没有任何落子能让 check 通过！');
+    if (!found && !passOk) {
+      report(lesson.id, '步骤' + (si + 1) + '(move)：没有任何落子序列能让 check 通过！');
     } else {
-      console.log('  L' + lesson.id + ' 步骤' + (si + 1) + '：可行落子=' + targets.join(' ') + (passOk ? ' 或放弃一手' : ''));
+      const label = found ? (found.length === 1 ? '可行落子=' + found[0] : '可行路径=' + found.join(' → ')) : '无落子';
+      console.log('  L' + lesson.id + ' 步骤' + (si + 1) + '：' + label + (passOk ? ' 或放弃一手' : ''));
     }
   });
 });

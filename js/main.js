@@ -78,16 +78,17 @@
   let animId = null;
   // 计算当前步骤要在棋盘上高亮的点：visual 步骤直接取 highlights；move 步骤可高亮某棋块的气
   function stepHighlights(step) {
-    if (step.type === 'visual') return (step.highlights || []).map(h => ({ i: h.i, style: h.style, label: h.label, animate: true }));
+    // visual 步骤的高亮带呼吸动画；highlightLibertiesOf 对 visual/quiz/move 所有步骤生效
+    const animate = step.type === 'visual';
     const out = [];
     if (step.highlights) {
-      for (const h of step.highlights) out.push({ i: h.i, style: h.style, label: h.label, animate: false });
+      for (const h of step.highlights) out.push({ i: h.i, style: h.style, label: h.label, animate });
     }
     if (step.highlightLibertiesOf != null) {
-      const i = step.highlightLibertiesOf;
-      if (app.board.grid[i] !== GO.EMPTY) {
-        const libs = app.board.liberties(i);
-        libs.forEach((li, k) => out.push({ i: li, label: k + 1 }));
+      const targets = Array.isArray(step.highlightLibertiesOf) ? step.highlightLibertiesOf : [step.highlightLibertiesOf];
+      for (const i of targets) {
+        if (app.board.grid[i] === GO.EMPTY) continue;
+        app.board.liberties(i).forEach((li, k) => out.push({ i: li, label: k + 1, animate }));
       }
     }
     return out;
@@ -102,7 +103,7 @@
       const step = LESSONS[app.lesson].steps[app.step];
       if (app.mode !== 'tutorial' || step.type !== 'visual' || app.stepDone) { stopHighlightAnim(); return; }
       const phase = ((t - start) / 1000) % 1;
-      const highlights = (step.highlights || []).map(h => ({ i: h.i, style: h.style, label: h.label, animate: true, phase }));
+      const highlights = stepHighlights(step).map(h => ({ ...h, phase }));
       drawBoard(canvas, app.board, { highlights });
       animId = requestAnimationFrame(loop);
     };
@@ -290,10 +291,12 @@
       app.board.ko = (step.ko != null) ? step.ko : -1;
       const obj = document.createElement('p');
       obj.className = 'objective';
+      obj.id = 'stepObjective';
       obj.innerHTML = '🎯 ' + step.objective;
       panel.appendChild(obj);
       const tag = document.createElement('div');
       tag.className = 'turn-tag';
+      tag.id = 'stepTurnTag';
       tag.innerHTML = '现在轮到 ' + colorDot(app.turn) + ' ' + colorName(app.turn) + ' 落子';
       panel.appendChild(tag);
       drawBoard(canvas, app.board, { hover: -1, highlights: stepHighlights(step) });
@@ -366,6 +369,18 @@
     const r = step.check({ board: b, lastMove: i, passed: false });
     if (r.done) {
       completeStep(r);
+      return;
+    }
+    if (r.nextPlayer != null) {
+      // 多阶段移动：本手完成，切换到下一手（如“打二还一”中的“还一”）
+      app.turn = r.nextPlayer;
+      const tag = $('stepTurnTag');
+      if (tag) tag.innerHTML = '现在轮到 ' + colorDot(app.turn) + ' ' + colorName(app.turn) + ' 落子';
+      if (r.objective != null) {
+        const obj = $('stepObjective');
+        if (obj) obj.innerHTML = '🎯 ' + r.objective;
+      }
+      if (r.hint) showMsg(r.hint, 'hint');
     } else if (r.hint) {
       showMsg(r.hint, 'hint');
     }
