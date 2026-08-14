@@ -87,6 +87,9 @@ body {
 }
 .lesson-item:hover { background: #f7f2e9; }
 .lesson-item.active { background: #fdeeea; }
+.lesson-item.locked { color: #9a938a; cursor: not-allowed; opacity: 0.62; }
+.lesson-item.locked:hover { background: transparent; }
+.lesson-item.locked .lesson-num { background: #ddd7cf; color: #8b847b; }
 .lesson-num {
   width: 26px; height: 26px;
   border-radius: 50%;

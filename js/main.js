@@ -198,17 +198,26 @@
   }
 
   // ---------------- 课程目录 ----------------
+  function isLessonUnlocked(index) {
+    return index === 0 || progress[LESSONS[index - 1].id] === true;
+  }
+
   function renderLessonList() {
     const ul = $('lessonList');
     ul.innerHTML = '';
     LESSONS.forEach((l, i) => {
       const li = document.createElement('li');
-      li.className = 'lesson-item' + (i === app.lesson ? ' active' : '');
+      const unlocked = isLessonUnlocked(i);
+      li.className = 'lesson-item' + (i === app.lesson ? ' active' : '') + (unlocked ? '' : ' locked');
       const done = progress[l.id] === true;
       li.innerHTML = '<span class="lesson-num">' + l.id + '</span>' +
         '<span class="lesson-name">' + l.title + '</span>' +
         (done ? '<span class="lesson-check">✓</span>' : '');
       li.addEventListener('click', () => {
+        if (!unlocked) {
+          showMsg('请先完成上一课，再开启这一课。', 'warn');
+          return;
+        }
         if (app.mode !== 'tutorial') switchMode('tutorial');
         app.lesson = i; app.step = 0; renderStep();
       });
@@ -218,7 +227,10 @@
     let completed = 0;
     LESSONS.forEach(l => { if (progress[l.id]) completed++; });
     $('progressFill').style.width = (completed / LESSONS.length * 100) + '%';
-    $('progressText').textContent = '已完成 ' + completed + ' / ' + LESSONS.length + ' 课';
+    const completedCourses = LESSONS.slice(0, -1).filter(l => progress[l.id]).length;
+    const graduationDone = progress[LESSONS[LESSONS.length - 1].id] === true;
+    $('progressText').textContent = '已完成 ' + completedCourses + ' / ' + (LESSONS.length - 1) + ' 课' +
+      (graduationDone ? ' · 已毕业' : ' · 毕业测试待完成');
   }
 
   // ---------------- 教程流程 ----------------
@@ -368,9 +380,6 @@
     if (r && r.successMsg) showMsg(r.successMsg, 'success');
     else showMsg('✅ 完成本步！', 'success');
     const lesson = LESSONS[app.lesson];
-    progress[lesson.id] = true;
-    saveProgress();
-    renderLessonList();
     const btn = $('btnNext');
     btn.textContent = (app.step < lesson.steps.length - 1) ? '下一步 →'
       : (app.lesson < LESSONS.length - 1 ? '下一课 →' : '完成教程 🎉');
