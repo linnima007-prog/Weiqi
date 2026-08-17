@@ -372,20 +372,97 @@ console.log('=== 新课（21-40）针对性校验 ===');
     console.log('  L25 引征：无引征末帧白块=' + g2.length + ' 子 气=' + gl2.length + ' 含引征子(7,2)=' + g2.includes(55) + '（应=5/1/false）');
     if (g2.includes(55) || gl2.length !== 1) report(25, '引征：无引征对比末帧白棋应只剩 1 气且无接应');
   })();
-  // L29 同气对杀：黑白各 4 气，黑下 (4,3) 紧气后白 3 气（先走者抢先机）
+  // L20、L39、L40 共用英国围棋协会公开的 52 手 9 路职业示例棋谱；全谱必须连续合法
+  (function () {
+    const sgfMoves = 'ee ce ge dc cf bf cg de ef bg ec eb fc df dg eg eh fg fh gg bh he hd gf fe ah gh hh hi hg if ch dh bi hf di ff ei ih db fb fa ga ea gb ed fd dd ig fi gi ci'.split(' ');
+    const b = new GoBoard(9);
+    const captures = [];
+    sgfMoves.forEach((coord, i) => {
+      const color = i % 2 === 0 ? GO.BLACK : GO.WHITE;
+      const idx = (coord.charCodeAt(1) - 97) * 9 + (coord.charCodeAt(0) - 97);
+      const result = b.play(color, idx);
+      if (!result.ok) report(20, '真实连续棋谱第' + (i + 1) + '手 ' + coord + ' 不合法');
+      if (result.captured && result.captured.length) captures.push([i + 1, result.captured.length]);
+    });
+    const totals = b.countStones();
+    console.log('  L20/39/40 真实棋谱：52手合法，提子=' + JSON.stringify(captures) + '，终局黑=' + totals.b + '子 白=' + totals.w + '子');
+    if (JSON.stringify(captures) !== JSON.stringify([[34, 1], [49, 6]])) report(20, '真实棋谱提子记录应为第34手提1子、第49手提6子');
+    if (totals.b !== 25 || totals.w !== 20) report(20, '真实棋谱终局盘面应为黑25子、白20子');
+    // 终局 H5 白子为死子；移除后按课程的中国面积规则与 7.5 贴目复核胜负
+    b.grid[43] = GO.EMPTY;
+    const live = b.countStones();
+    const territory = b.territory();
+    const blackScore = live.b + territory.black;
+    const whiteScore = live.w + territory.white + 7.5;
+    console.log('  L40 终局数地：黑=' + blackScore + ' 白=' + whiteScore + '，白胜=' + (whiteScore - blackScore));
+    if (live.b !== 25 || live.w !== 19 || territory.black !== 18 || territory.white !== 19 || blackScore !== 43 || whiteScore !== 45.5) {
+      report(20, '终局移除 H5 死子后应为黑43、白45.5，白胜2.5');
+    }
+  })();
+  // L10 固定残局：玩家看到的题面必须与答案中的数目、地和贴目完全一致
+  (function () {
+    const lesson = LESSONS.find(l => l.id === 10);
+    const visual = lesson && lesson.steps.find(s => s.type === 'visual');
+    const quiz = lesson && lesson.steps.find(s => s.type === 'quiz');
+    if (!visual || !quiz || lesson.steps.length !== 2) {
+      report(10, '固定残局应只有“自行数地”和“选择答案”两个步骤');
+      return;
+    }
+    if (visual.setup !== quiz.setup) report(10, '观察题与选择题必须使用同一个残局');
+    const b = parseGrid(quiz.setup);
+    const live = b.countStones();
+    const territory = b.territory();
+    const blackScore = live.b + territory.black;
+    const whiteScore = live.w + territory.white + 7.5;
+    console.log('  L10 固定残局：黑=' + blackScore + ' 白=' + whiteScore + '，白胜=' + (whiteScore - blackScore));
+    if (live.b !== 25 || live.w !== 19 || territory.black !== 18 || territory.white !== 19 || blackScore !== 43 || whiteScore !== 45.5) {
+      report(10, '固定残局应为黑25子+18地=43、白19子+19地+7.5贴目=45.5');
+    }
+  })();
+  // L29 同气对杀：封闭棋形中黑 F6、白 E6 各 2 气，黑先可用三手顺序提白
   (function () {
     const lesson = LESSONS.find(l => l.id === 29);
     const setup = lesson.steps.find(s => s.type === 'move').setup;
     const b = new GoBoard(9); b.grid = parseSetup(setup);
-    const blackLibs = GoBoard.libertiesOf(b.grid, 9, b.groupOf(21)); // 黑 (3,4)
-    const whiteLibs = GoBoard.libertiesOf(b.grid, 9, b.groupOf(30)); // 白 (4,4)
+    const blackLibs = GoBoard.libertiesOf(b.grid, 9, b.groupOf(32)); // 黑 F6
+    const whiteLibs = GoBoard.libertiesOf(b.grid, 9, b.groupOf(31)); // 白 E6
     console.log('  L29 同气对杀：黑气=' + blackLibs.length + ' 白气=' + whiteLibs.length);
-    if (blackLibs.length !== whiteLibs.length) report(29, '同气对杀：黑白应同气，实际黑=' + blackLibs.length + ' 白=' + whiteLibs.length);
-    if (!b.isLegal(GO.BLACK, 29)) { report(29, '同气对杀：黑紧气点(4,3)不合法'); return; }
-    b.play(GO.BLACK, 29);
-    const wl = GoBoard.libertiesOf(b.grid, 9, b.groupOf(30));
-    console.log('  L29 黑紧气后：白气=' + wl.length);
-    if (wl.length !== whiteLibs.length - 1) report(29, '同气对杀：黑下(4,3)后白气应减少 1，实际=' + wl.length);
+    if (blackLibs.length !== 2 || whiteLibs.length !== 2) report(29, '同气对杀：黑白应各 2 气，实际黑=' + blackLibs.length + ' 白=' + whiteLibs.length);
+    if (!b.isLegal(GO.BLACK, 30)) { report(29, '同气对杀：黑 D6 紧气不合法'); return; }
+    b.play(GO.BLACK, 30); // 黑 D6 紧白
+    if (b.liberties(31).length !== 1) report(29, '同气对杀：黑 D6 后白 E6 应只剩 1 气');
+    b.play(GO.WHITE, 33); // 白 G6 反紧黑
+    if (b.liberties(32).length !== 1) report(29, '同气对杀：白 G6 后黑 F6 应只剩 1 气');
+    const r = b.play(GO.BLACK, 40); // 黑 E5 先提白
+    const cap = (r.captured || []).includes(31);
+    console.log('  L29 完整对杀：黑 D6 → 白 G6 → 黑 E5，提白=' + cap);
+    if (!cap) report(29, '同气对杀：黑先走完整顺序后应提掉白 E6');
+  })();
+  // L37 挂角示例必须黑白交替，且坐标与棋子一致
+  (function () {
+    const frames = LESSONS.find(l => l.id === 37).steps.find(s => s.type === 'demo').frames;
+    const expected = [[GO.BLACK, 21], [GO.WHITE, 32], [GO.BLACK, 29], [GO.WHITE, 33]];
+    let prev = new Array(81).fill(GO.EMPTY);
+    frames.forEach((f, i) => {
+      const grid = parseSetup(f.board);
+      const added = [];
+      for (let k = 0; k < 81; k++) if (prev[k] === GO.EMPTY && grid[k] !== GO.EMPTY) added.push([grid[k], k]);
+      if (added.length !== 1 || added[0][0] !== expected[i][0] || added[0][1] !== expected[i][1]) {
+        report(37, '挂角演示第' + (i + 1) + '帧的落子颜色或坐标不正确');
+      }
+      prev = grid;
+    });
+  })();
+  // L40 先手收官：黑 C8 打吃后，白 B7 能正常长气应对
+  (function () {
+    const lesson = LESSONS.find(l => l.id === 40);
+    const setup = lesson.steps.find(s => s.type === 'move').setup;
+    const b = new GoBoard(9); b.grid = parseSetup(setup);
+    b.play(GO.BLACK, 11);
+    const atari = b.grid[10] === GO.WHITE && b.liberties(10).length === 1 && b.liberties(10)[0] === 19;
+    if (!atari) report(40, '先手收官：黑 C8 应把白 B8 打吃，最后一气为 B7');
+    const r = b.play(GO.WHITE, 19);
+    if (!r.ok || b.liberties(10).length < 2) report(40, '先手收官：白 B7 应当合法并长出气');
   })();
   // L36 劫争：黑提劫后白不能立刻回提 (2,2)
   (function () {

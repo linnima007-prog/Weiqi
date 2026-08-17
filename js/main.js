@@ -31,6 +31,7 @@
     freeLast: -1,
     freePassCount: 0,
     freeEnded: false,
+    scoreWarningAcknowledged: false,
     freeEmbedded: false,     // 是否处于第10课嵌入式对局
     aiThinking: false,
     showingTerritory: false,   // 数地后是否在棋盘上标出地盘
@@ -539,6 +540,7 @@
     app.freeLast = -1;
     app.freePassCount = 0;
     app.freeEnded = false;
+    app.scoreWarningAcknowledged = false;
     app.aiThinking = false;
     app.showingTerritory = false;
     hideScorePanel();
@@ -571,6 +573,7 @@
     }
     app.freeLast = i;
     app.freePassCount = 0;
+    app.scoreWarningAcknowledged = false;
     app.freeTurn = 3 - app.freeTurn;
     updateFreeInfo();
     drawBoard(canvasFree, b, { last: app.freeLast });
@@ -629,16 +632,17 @@
         board.play(ai, move);
         app.freeLast = move;
         app.freePassCount = 0;
+        app.scoreWarningAcknowledged = false;
         app.freeTurn = human;
       } else {
         // 电脑无法落子，算作放弃一手
         app.freePassCount++;
         app.freeTurn = human;
-        if (app.freePassCount >= 2) { showScore(); return; }
+        if (app.freePassCount >= 2) { pauseForScoring(); return; }
       }
       updateFreeInfo();
       drawBoard(canvasFree, board, { last: app.freeLast });
-      if (app.freePassCount >= 2) showScore();
+      if (app.freePassCount >= 2) pauseForScoring();
     }, 600);
   }
 
@@ -656,6 +660,14 @@
   }
 
   // ---------------- 数地 ----------------
+  function pauseForScoring() {
+    app.freePassCount = 0;
+    app.scoreWarningAcknowledged = true;
+    updateFreeInfo();
+    drawBoard(canvasFree, app.freeBoard, { last: app.freeLast });
+    showModal('⏸️ <b>双方已经连续停一手。</b><br>请先确认盘上死子已经提净：若仍有未提死子，收起提示后继续落子；若已提净，请点击“数地”结算。');
+  }
+
   function showScore() {
     const b = app.freeBoard;
     const t = b.territory();
@@ -746,6 +758,7 @@
     }
     app.freeLast = b.history.length ? b.history[b.history.length - 1].idx : -1;
     app.freePassCount = 0;
+    app.scoreWarningAcknowledged = false;
     updateFreeInfo();
     drawBoard(canvasFree, b, { last: app.freeLast });
   });
@@ -754,13 +767,20 @@
     app.freePassCount++;
     app.freeLast = -1;
     app.freeTurn = 3 - app.freeTurn;
-    if (app.freePassCount >= 2) { showScore(); return; }
+    if (app.freePassCount >= 2) { pauseForScoring(); return; }
     updateFreeInfo();
     drawBoard(canvasFree, app.freeBoard, {});
     if (app.freeType === 'ai' && app.freeTurn === GO.WHITE) aiMove();
   });
   $('btnNew').addEventListener('click', () => { initFree(app.freeType); });
-  $('btnScore').addEventListener('click', () => { showScore(); });
+  $('btnScore').addEventListener('click', () => {
+    if (!app.scoreWarningAcknowledged) {
+      app.scoreWarningAcknowledged = true;
+      showModal('⚠️ <b>数地前请先把死子提净。</b><br>本程序使用“盘上活子 + 围住空点”的简化面积计分，不会自动判断死子。<br>如果盘上还有未提的死棋，请先收起提示继续下；确认已提净后，再点一次“数地”。');
+      return;
+    }
+    showScore();
+  });
 
   // 模式切换
   document.querySelectorAll('.tab').forEach(t => {
