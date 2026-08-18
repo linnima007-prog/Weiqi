@@ -1,0 +1,4 @@
+.codex-video-analysis/models/** filter=lfs diff=lfs merge=lfs -text
+.codex-video-analysis/pydeps/**/*.dll filter=lfs diff=lfs merge=lfs -text
+.codex-video-analysis/pydeps/**/*.pyd filter=lfs diff=lfs merge=lfs -text
+.codex-video-analysis/pydeps/**/*.lib filter=lfs diff=lfs merge=lfs -text
