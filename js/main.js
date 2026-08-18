@@ -5,7 +5,6 @@
 (function () {
   'use strict';
   const GO = window.GO, GoBoard = window.GoBoard;
-  const VIDEO_LESSONS = window.VIDEO_LESSONS || [];
   const SIZE = 9;
   const KOMI = 7.5;
   const $ = id => document.getElementById(id);
@@ -15,14 +14,12 @@
 
   // ---------------- 应用状态 ----------------
   const app = {
-    mode: 'tutorial',        // 'tutorial' | 'video' | 'free'
+    mode: 'tutorial',        // 'tutorial' | 'free'
     courseMode: 'tutorial',  // 自由对局时仍记住侧栏最后展示的课程目录
     lesson: 0,
     step: 0,
     tutorialLesson: 0,
     tutorialStep: 0,
-    videoLesson: 0,
-    videoStep: 0,
     board: new GoBoard(SIZE),
     playerColor: GO.BLACK,
     turn: GO.BLACK,
@@ -38,30 +35,24 @@
     freePassCount: 0,
     freeEnded: false,
     scoreWarningAcknowledged: false,
-    freeEmbedded: false,     // 是否处于第10课嵌入式对局
+    freeEmbedded: false,     // 是否处于课程嵌入式对局
     aiThinking: false,
     showingTerritory: false,   // 数地后是否在棋盘上标出地盘
     lastGameResult: null     // 最近一次数地结果（'黑'/'白'/'和'），用于毕业测试结算
   };
 
   // 进度持久化：{ lessonId: true }
-  const progress = JSON.parse(localStorage.getItem('weiqiProgress') || '{}');
-  function saveProgress() { localStorage.setItem('weiqiProgress', JSON.stringify(progress)); }
-  const videoProgress = JSON.parse(localStorage.getItem('weiqiVideoCourseProgress') || '{}');
-  function saveVideoProgress() { localStorage.setItem('weiqiVideoCourseProgress', JSON.stringify(videoProgress)); }
-
-  function isCourseMode() { return app.mode === 'tutorial' || app.mode === 'video'; }
-  function activeLessons() { return app.courseMode === 'video' ? VIDEO_LESSONS : LESSONS; }
-  function activeProgress() { return app.courseMode === 'video' ? videoProgress : progress; }
-  function saveActiveProgress() {
-    if (app.courseMode === 'video') saveVideoProgress();
-    else saveProgress();
-  }
+  const progress = JSON.parse(localStorage.getItem('weiqiActionCourseProgressV1') || '{}');
+  function saveProgress() { localStorage.setItem('weiqiActionCourseProgressV1', JSON.stringify(progress)); }
+  function isCourseMode() { return app.mode === 'tutorial'; }
+  function activeLessons() { return LESSONS; }
+  function activeProgress() { return progress; }
+  function saveActiveProgress() { saveProgress(); }
   function nextButtonLabel(lesson) {
     const lessons = activeLessons();
     if (app.step < lesson.steps.length - 1) return '下一步 →';
     if (app.lesson < lessons.length - 1) return '下一课 →';
-    return app.courseMode === 'video' ? '完成实验课 ✓' : '完成教程 🎉';
+    return '完成教程 🎉';
   }
 
   // ---------------- 工具函数 ----------------
@@ -196,7 +187,6 @@
     const cap = $('demoCaption');
     const next = $('btnNext');
     next.classList.add('hidden');
-    $('btnReplay').classList.add('hidden');
     $('btnDemoNext').classList.add('hidden');
     for (let i = 0; i < frames.length; i++) {
       if (demoTok !== tok) return;
@@ -217,12 +207,10 @@
     updateDemoDots(frames.length - 1);
     next.textContent = '继续 →';
     next.classList.remove('hidden');
-    $('btnReplay').classList.remove('hidden');
   }
 
   // ---------------- 课程目录 ----------------
   function isLessonUnlocked(index) {
-    if (app.courseMode === 'video') return true;
     return index === 0 || progress[LESSONS[index - 1].id] === true;
   }
 
@@ -231,17 +219,23 @@
     const courseProgress = activeProgress();
     const ul = $('lessonList');
     ul.innerHTML = '';
-    $('catalogTitle').textContent = app.courseMode === 'video' ? '视频转课实验' : '课程目录';
-    $('catalogNote').classList.toggle('hidden', app.courseMode !== 'video');
-    $('catalogNote').textContent = app.courseMode === 'video'
-      ? '独立对照课，不影响40课进度。先体验，再切回原课程比较。'
-      : '';
+    $('catalogTitle').textContent = '行动课程';
+    $('catalogNote').classList.remove('hidden');
+    $('catalogNote').textContent = '每课：学一个动作 → 两道局部题 → 短对局 → 复盘。';
+    let renderedUnit = null;
     lessons.forEach((l, i) => {
+      if (l.unit && l.unit !== renderedUnit) {
+        renderedUnit = l.unit;
+        const unit = document.createElement('li');
+        unit.className = 'lesson-unit';
+        unit.textContent = l.unit;
+        ul.appendChild(unit);
+      }
       const li = document.createElement('li');
       const unlocked = isLessonUnlocked(i);
       li.className = 'lesson-item' + (i === app.lesson ? ' active' : '') + (unlocked ? '' : ' locked');
       const done = courseProgress[l.id] === true;
-      li.innerHTML = '<span class="lesson-num">' + (app.courseMode === 'video' ? 'V' : l.id) + '</span>' +
+      li.innerHTML = '<span class="lesson-num">' + l.id + '</span>' +
         '<span class="lesson-name">' + l.title + '</span>' +
         (done ? '<span class="lesson-check">✓</span>' : '');
       li.addEventListener('click', () => {
@@ -255,17 +249,6 @@
       ul.appendChild(li);
     });
     // 进度条
-    if (app.courseMode === 'video') {
-      const lesson = lessons[0];
-      const done = courseProgress[lesson.id] === true;
-      const replaying = done && app.step < lesson.steps.length - 1;
-      const stage = (done && !replaying) ? lesson.steps.length : Math.min(app.step + 1, lesson.steps.length);
-      $('progressFill').style.width = (stage / lesson.steps.length * 100) + '%';
-      $('progressText').textContent = done && !replaying
-        ? '实验课已完成 · 可随时重玩'
-        : (replaying ? '重新体验 ' : '体验进度 ') + stage + ' / ' + lesson.steps.length + ' 环节';
-      return;
-    }
     let completed = 0;
     LESSONS.forEach(l => { if (progress[l.id]) completed++; });
     $('progressFill').style.width = (completed / LESSONS.length * 100) + '%';
@@ -325,9 +308,7 @@
     cancelDemo();
     const lesson = activeLessons()[app.lesson];
     const step = lesson.steps[app.step];
-    $('lessonTitle').textContent = app.courseMode === 'video'
-      ? '视频转课实验 · ' + lesson.title
-      : '第 ' + lesson.id + ' 课 · ' + lesson.title;
+    $('lessonTitle').textContent = '第 ' + lesson.id + ' 课 · ' + lesson.title;
     renderStepDots();
 
     const panel = $('stepPanel');
@@ -338,6 +319,7 @@
     $('btnNext').classList.add('hidden');
     $('btnHint').classList.remove('hidden');
     $('btnRestartStep').classList.remove('hidden');
+    $('btnPrev').disabled = app.step === 0;
 
     app.stepDone = false;
     app.lastMove = null;
@@ -409,7 +391,6 @@
         d.className = 'demo-dot';
         wrap.appendChild(d);
       });
-      $('btnReplay').classList.add('hidden');
       $('btnDemoNext').classList.add('hidden');
       $('btnHint').classList.add('hidden');
       $('btnRestartStep').classList.add('hidden');
@@ -423,6 +404,10 @@
 
   function completeStep(r) {
     app.stepDone = true;
+    const objective = $('stepObjective');
+    if (objective) objective.innerHTML = '✅ 本环节目标已完成。';
+    const turnTag = $('stepTurnTag');
+    if (turnTag) turnTag.textContent = '本环节已完成，可以进入下一步。';
     if (r && r.successMsg) showMsg(r.successMsg, 'success');
     else showMsg('✅ 完成本步！', 'success');
     const lesson = activeLessons()[app.lesson];
@@ -440,6 +425,11 @@
       else showMsg('⛔ 这是禁入点！把棋子下在这里会“自杀”，规则不允许。请换个地方。', 'warn');
       return;
     }
+    // 题目预设棋子不在 history 中，因此不能用 undo() 回退错误落子；
+    // 保存完整局面，答错时原样恢复，避免把题面一起清空。
+    const gridBeforeMove = b.grid.slice();
+    const koBeforeMove = b.ko;
+    const historyLengthBeforeMove = b.history.length;
     const res = b.play(app.turn, i);
     if (!res.ok) return;
     app.lastMove = i;
@@ -447,6 +437,34 @@
     const r = step.check({ board: b, lastMove: i, passed: false });
     if (r.done) {
       completeStep(r);
+      return;
+    }
+    if (r.retry) {
+      b.grid = gridBeforeMove;
+      b.ko = koBeforeMove;
+      b.history.length = historyLengthBeforeMove;
+      app.lastMove = b.history.length ? b.history[b.history.length - 1].idx : null;
+      drawBoard(canvas, b, { hover: -1, last: app.lastMove, highlights: stepHighlights(step) });
+      if (r.hint) showMsg(r.hint, 'hint');
+      return;
+    }
+    if (r.replyMove != null) {
+      const replyColor = r.replyColor != null ? r.replyColor : (3 - app.turn);
+      if (!b.isLegal(replyColor, r.replyMove)) {
+        showMsg('⚠️ 短对局的回应棋无法落下，请重做本步。', 'warn');
+        return;
+      }
+      b.play(replyColor, r.replyMove);
+      app.lastMove = r.replyMove;
+      app.turn = step.playerColor;
+      const tag = $('stepTurnTag');
+      if (tag) tag.innerHTML = '现在轮到 ' + colorDot(app.turn) + ' ' + colorName(app.turn) + ' 落子';
+      if (r.objective != null) {
+        const obj = $('stepObjective');
+        if (obj) obj.innerHTML = '🎯 ' + r.objective;
+      }
+      drawBoard(canvas, b, { hover: -1, last: app.lastMove, highlights: stepHighlights(step) });
+      if (r.hint) showMsg(r.hint, 'hint');
       return;
     }
     if (r.nextPlayer != null) {
@@ -498,6 +516,11 @@
     box.classList.remove('hidden');
   });
   $('btnRestartStep').addEventListener('click', renderStep);
+  $('btnPrev').addEventListener('click', () => {
+    if (app.step === 0) return;
+    app.step--;
+    renderStep();
+  });
   $('btnNext').addEventListener('click', () => {
     const lessons = activeLessons();
     const lesson = lessons[app.lesson];
@@ -513,20 +536,10 @@
         app.step = 0;
         renderStep();
       } else {
-        if (app.courseMode === 'video') showVideoCourseCompletion();
-        else showCompletion();
+        showCompletion();
       }
     }
   });
-  $('btnReplay').addEventListener('click', () => {
-    const step = activeLessons()[app.lesson].steps[app.step];
-    if (step.type !== 'demo') return;
-    $('btnNext').classList.add('hidden');
-    $('btnReplay').classList.add('hidden');
-    app.board = new GoBoard(SIZE);
-    runDemo(step);
-  });
-
   function showCompletion() {
     progress[LESSONS[LESSONS.length - 1].id] = true;
     saveProgress();
@@ -541,25 +554,14 @@
       '<h3>🎓 毕业啦！</h3>' +
       '<p>你完成了全部 ' + (LESSONS.length - 1) + ' 课和毕业测试。</p>' +
       resultHtml +
-      '<p>你已掌握：气、提子、禁入点、连接切断、打劫、死活、征子、枷吃、双叫吃、倒扑、对杀、手筋、定式与官子思路。</p>' +
-      '<p>接下来多下棋、多做死活题，棋力会一点点涨起来。去自由对局挑战电脑，或和朋友对弈吧！</p>'
+      '<p>你已掌握：落子、打吃、提子、逃跑、连接、切断、禁入点、做眼、打劫、围地、基本手筋与开局方向。</p>' +
+      '<p>接下来继续用“观察弱棋 → 找候选点 → 计算几手 → 再落子”的顺序多下 9 路棋。</p>'
     );
     $('modalClose').textContent = '去自由对局 ▶';
     $('modalClose').onclick = () => { closeModal(); switchMode('free'); };
   }
 
-  function showVideoCourseCompletion() {
-    showModal(
-      '<h3>🎬 视频转课体验完成</h3>' +
-      '<p>你完成了从“角的效率”到“拆边与方向选择”的整条推理链。</p>' +
-      '<p><b>建议对比：</b>回到40课，依次体验第17、18、31、33课。比较两点：哪套让你更快理解，哪套让你在新局面里更会下。</p>' +
-      '<p>实验课强在故事连续；40课强在知识覆盖与分项训练。最终要看你的实际体验，而不是课程数量。</p>'
-    );
-    $('modalClose').textContent = '去对比40课 ▶';
-    $('modalClose').onclick = () => { closeModal(); switchMode('tutorial'); };
-  }
-
-  // ---------------- 第10课嵌入式自由对局 ----------------
+  // ---------------- 课程嵌入式自由对局 ----------------
   function startEmbeddedFree(step) {
     app.freeEmbedded = true;
     app.mode = 'free';
@@ -581,7 +583,7 @@
     }
     app.mode = mode;
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-    if (mode === 'tutorial' || mode === 'video') {
+    if (mode === 'tutorial') {
       app.courseMode = mode;
       app.lesson = app[mode + 'Lesson'] || 0;
       app.step = app[mode + 'Step'] || 0;
@@ -761,7 +763,7 @@
   $('btnScoreFinish').addEventListener('click', () => {
     hideScorePanel();
     const isLast = app.lesson === LESSONS.length - 1;
-    progress[LESSONS[app.lesson].id] = true;   // 完成当前课（不再写死第10课）
+    progress[LESSONS[app.lesson].id] = true;
     saveProgress();
     app.freeEmbedded = false;
     if (!isLast) {

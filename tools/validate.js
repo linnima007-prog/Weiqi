@@ -1,628 +1,104 @@
 /**
- * validate.js —— 校验所有课程局面的合法性
- * 检查项：
- *  1. demo/visual/move/quiz 的每个局面：每颗棋子都至少有 1 口气（非淡出帧不得有 0 气棋子）
- *  2. 所有 highlights / highlightLibertiesOf 必须指向合法的点（高亮落在棋子上的要警告）
- *  3. move 步骤：setup 必须合法；check 在落子后必须能达成
- *  4. demo 帧：相邻帧落子增量合理（提子除外）
- * 用法：node tools/validate.js
+ * 校验行动课程：局面合法、坐标有效、每道落子题的标准答案可完成。
  */
 const path = require('path');
-const fs = require('fs');
 const root = path.join(__dirname, '..');
 require(path.join(root, 'js', 'go-core.js'));
 require(path.join(root, 'js', 'lessons.js'));
-require(path.join(root, 'js', 'video-course.js'));
-const GO = globalThis.GO;
-const LESSONS = globalThis.LESSONS;
-const ALL_LESSONS = LESSONS.concat(globalThis.VIDEO_LESSONS || []);
-const parseSetup = globalThis.parseSetup;
 
+const GO = globalThis.GO;
+const GoBoard = globalThis.GoBoard;
+const LESSONS = globalThis.LESSONS;
+const parseSetup = globalThis.parseSetup;
 let issues = 0;
-function report(lessonId, msg) {
+
+function report(label, message) {
   issues++;
-  console.log('  [L' + lessonId + '] ' + msg);
+  console.log('  [问题] ' + label + '：' + message);
 }
 
-/** 检查一个局面中是否有 0 气棋子 */
-function checkNoDeadStones(board, label) {
-  const size = board.size;
+function boardFrom(setup, ko) {
+  const board = new GoBoard(9);
+  board.grid = parseSetup(setup || '');
+  board.ko = ko == null ? -1 : ko;
+  return board;
+}
+
+function validatePosition(board, label, allowDead) {
   for (let i = 0; i < board.grid.length; i++) {
     if (board.grid[i] === GO.EMPTY) continue;
-    const g = board.groupOf(i);
-    if (GoBoard.libertiesOf(board.grid, size, g).length === 0) {
-      report(board.__lessonId, label + '：位置 ' + (Math.floor(i / 9) + 1) + ',' + (i % 9 + 1) + ' 的棋子有 0 口气（非法棋形）');
-    }
+    const group = board.groupOf(i);
+    const libs = GoBoard.libertiesOf(board.grid, 9, group);
+    if (!allowDead && libs.length === 0) report(label, '初始局面含无气棋子：' + i);
   }
 }
 
-/** 检查高亮点是否落在空点上 */
-function checkHighlights(board, highlights, label) {
-  (highlights || []).forEach(h => {
-    if (h.i == null) return;
-    if (h.i < 0 || h.i >= 81) { report(board.__lessonId, label + '：高亮索引 ' + h.i + ' 越界'); return; }
-    if (h.style === 'capture') return; // capture 样式专门标记棋子（将被提的子），允许落在棋子上
-    if (h.style === 'mark') return;    // mark 样式专门标记棋子（如引征子），允许落在棋子上
-    if (board.grid[h.i] !== GO.EMPTY) {
-      report(board.__lessonId, label + '：高亮 ' + h.i + '（' + (Math.floor(h.i / 9) + 1) + ',' + (h.i % 9 + 1) + '）落在棋子上了');
+function validateHighlights(highlights, label) {
+  for (const h of highlights || []) {
+    const idx = typeof h === 'number' ? h : h.i;
+    if (idx == null || idx < 0 || idx >= 81) report(label, '高亮坐标越界：' + idx);
+  }
+}
+
+function validateMoveStep(step, label) {
+  const board = boardFrom(step.setup, step.ko);
+  validatePosition(board, label, false);
+  validateHighlights(step.highlights, label);
+  if (!Array.isArray(step.solution) || !step.solution.length) {
+    report(label, '落子题缺少 solution');
+    return;
+  }
+  let completed = false;
+  for (const idx of step.solution) {
+    if (!board.isLegal(step.playerColor, idx)) {
+      report(label, '标准答案不是合法落子：' + idx);
+      return;
     }
-  });
+    board.play(step.playerColor, idx);
+    const result = step.check({ board, lastMove: idx, passed: false });
+    if (result.retry) {
+      report(label, '标准答案被判定为重试：' + idx);
+      return;
+    }
+    if (result.done) {
+      completed = true;
+      break;
+    }
+    if (result.replyMove != null) {
+      const replyColor = result.replyColor == null ? 3 - step.playerColor : result.replyColor;
+      if (!board.isLegal(replyColor, result.replyMove)) {
+        report(label, '短对局回应不是合法落子：' + result.replyMove);
+        return;
+      }
+      board.play(replyColor, result.replyMove);
+    }
+  }
+  if (!completed) report(label, '走完标准答案后没有完成');
 }
 
-/** 检查 highlightLibertiesOf 指向的棋块气点是否都是空点 */
-function checkLibOf(board, target, label) {
-  if (target == null) return;
-  const t = Array.isArray(target) ? target : [target];
-  t.forEach(i => {
-    if (board.grid[i] === GO.EMPTY) { report(board.__lessonId, label + '：highlightLibertiesOf ' + i + ' 指向空点'); return; }
-    const libs = board.liberties(i);
-    libs.forEach(li => {
-      if (board.grid[li] !== GO.EMPTY) report(board.__lessonId, label + '：气点 ' + li + ' 不是空的');
-    });
-  });
-}
-
-function parseGrid(str) {
-  const b = new GoBoard(9);
-  if (str) b.grid = parseSetup(str);
-  return b;
-}
-
-// ============ 对现有 + 新课程全量校验 ============
-ALL_LESSONS.forEach(lesson => {
-  const b = new GoBoard(9);
-  b.__lessonId = lesson.id;
-  lesson.steps.forEach((step, si) => {
-    const label = '第' + lesson.id + '课 步骤' + (si + 1) + '(' + step.type + ')';
-    if (step.type === 'visual' || step.type === 'quiz' || step.type === 'move') {
-      const board = parseGrid(step.setup || '');
-      board.__lessonId = lesson.id;
-      checkNoDeadStones(board, label);
-      checkHighlights(board, step.highlights, label);
-      checkLibOf(board, step.highlightLibertiesOf, label);
+console.log('=== 行动课程通用校验 ===');
+for (const lesson of LESSONS) {
+  console.log('L' + lesson.id + ' ' + lesson.title + '：' + lesson.steps.length + ' 个环节');
+  lesson.steps.forEach((step, index) => {
+    const label = 'L' + lesson.id + '-S' + (index + 1);
+    if (step.type === 'move') validateMoveStep(step, label);
+    if (step.type === 'quiz' || step.type === 'visual') {
+      const board = boardFrom(step.setup);
+      validatePosition(board, label, false);
+      validateHighlights(step.highlights, label);
+      if (step.type === 'quiz' && (step.answer < 0 || step.answer >= step.options.length)) {
+        report(label, '选择题答案下标越界');
+      }
     }
     if (step.type === 'demo') {
-      let prev = null;
-      (step.frames || []).forEach((f, fi) => {
-        const board = parseGrid(f.board || '');
-        board.__lessonId = lesson.id;
-        const fl = label + ' 帧' + (fi + 1);
-        // 淡出帧（flash）里被提的棋子允许 0 气——那是“正要被提掉”的动画
-        if (f.flash == null) checkNoDeadStones(board, fl);
-        checkHighlights(board, f.highlights, fl);
-        checkLibOf(board, f.highlightLibs, fl);
-        // 帧间增量检查（提子帧跳过）
-        if (prev && !f.reset) {
-          const delta = [];
-          for (let i = 0; i < 81; i++) {
-            if (board.grid[i] !== prev.grid[i]) delta.push({ i, from: prev.grid[i], to: board.grid[i] });
-          }
-          const added = delta.filter(d => d.from === GO.EMPTY && d.to !== GO.EMPTY);
-          const removed = delta.filter(d => d.from !== GO.EMPTY && d.to === GO.EMPTY);
-          if (added.length > 1) report(lesson.id, fl + '：一帧新增了 ' + added.length + ' 颗棋子（应每次只下 1 颗，除非是提子回合的瞬时）');
-          // mark 应落在本帧新增的棋子上（恰好新增 1 颗时）
-          if (f.mark != null && added.length === 1 && f.mark !== added[0].i) {
-            report(lesson.id, fl + '：mark=' + f.mark + ' 与本帧新增棋子 (' + (Math.floor(added[0].i / 9) + 1) + ',' + (added[0].i % 9 + 1) + ') 不一致');
-          }
-        }
-        prev = { grid: board.grid.slice() };
+      (step.frames || []).forEach((frame, frameIndex) => {
+        const board = boardFrom(frame.board);
+        validatePosition(board, label + '-F' + (frameIndex + 1), !!frame.flash);
+        validateHighlights(frame.highlights, label + '-F' + (frameIndex + 1));
       });
     }
   });
-});
-
-// ============ 设计辅助：暴力搜索一条合法的征子序列 ============
-// 目标：黑先，白(4,4)【0-idx】被黑追，白每次只能向“逃路”跑，黑每一手都是打吃，最后逼到边角被提
-function searchLadder() {
-  const B = 1, W = 2;
-  const startWhite = [4, 4];
-  const size = 9;
-  function legal(board, color, r, c) {
-    if (r < 0 || r >= size || c < 0 || c >= size) return false;
-    const b = new GoBoard(9);
-    b.grid = board.slice();
-    return b.isLegal(color, r * 9 + c);
-  }
-  function atariTargets(board, whiteIdx) {
-    // 白棋块气数
-    const b = new GoBoard(9); b.grid = board.slice();
-    const libs = b.liberties(whiteIdx);
-    return libs;
-  }
-  // 黑先手，先摆上追子：白(4,4)，黑(5,4),(4,5)
-  let board = new Array(81).fill(0);
-  board[4 * 9 + 4] = W;
-  board[5 * 9 + 4] = B;
-  board[4 * 9 + 5] = B;
-  const seq = [];
-  let whiteIdx = 4 * 9 + 4;
-  for (let step = 0; step < 12; step++) {
-    // 找黑棋的“打吃”手：落在白棋气上，且落子后白棋气=1
-    const libs = atariTargets(board, whiteIdx);
-    if (libs.length === 0) { seq.push({ type: 'CAPTURED' }); break; }
-    let atariMove = null;
-    for (const li of libs) {
-      if (!legal(board, B, Math.floor(li / 9), li % 9)) continue;
-      const b = new GoBoard(9); b.grid = board.slice();
-      b.play(B, li);
-      // 落子后白棋是否还剩 1 气（打吃）
-      const g = b.groupOf(whiteIdx);
-      if (g.length === 0) { atariMove = { li, captured: true }; break; }
-      const nb = b.liberties(whiteIdx);
-      if (nb.length === 1) { atariMove = { li }; break; }
-    }
-    if (!atariMove) { seq.push({ type: 'NO_ATARI', libs }); break; }
-    board[Math.floor(atariMove.li / 9) * 9 + (atariMove.li % 9)] = B;
-    if (atariMove.captured) { seq.push({ type: 'CAPTURED', li: atariMove.li }); break; }
-    seq.push({ type: 'B_ATARI', li: atariMove.li });
-    // 白逃：白棋的唯一气（真实征子里白只能往一个方向跑；这里先试所有合法逃点）
-    const bl = new GoBoard(9); bl.grid = board.slice();
-    const wl = bl.liberties(whiteIdx);
-    if (wl.length !== 1) { seq.push({ type: 'UNEXPECTED', wl }); break; }
-    const esc = wl[0];
-    board[Math.floor(esc / 9) * 9 + (esc % 9)] = W;
-    whiteIdx = esc; // 追的是整块，用任一子即可，这里记录最新逃子
-    seq.push({ type: 'W_ESCAPE', li: esc });
-  }
-  return seq;
 }
 
-// ============ 设计辅助：打印一个局面的各组气 ============
-function printGroups(str, label) {
-  const b = parseGrid(str);
-  console.log('--- ' + label + ' ---');
-  const seen = new Set();
-  for (let i = 0; i < 81; i++) {
-    if (b.grid[i] === GO.EMPTY || seen.has(i)) continue;
-    const g = b.groupOf(i);
-    g.forEach(x => seen.add(x));
-    const libs = GoBoard.libertiesOf(b.grid, 9, g);
-    console.log('  棋块 @' + g.map(x => (Math.floor(x / 9) + 1) + ',' + (x % 9 + 1)).join(' ') +
-      ' (' + (b.grid[i] === 1 ? '黑' : '白') + ') 气=' + libs.map(x => (Math.floor(x / 9) + 1) + ',' + (x % 9 + 1)).join(' '));
-  }
-}
-
-// ============ 第11课：征子逐帧验证（白沿第4行向左跑，黑下方追，黑上方支撑） ============
-console.log('=== L11 征子逐帧 ===');
-(function () {
-  // 0-idx：白(4,4)(4,3)(4,2)；黑(4,5)追右侧、黑(5,4)(5,3)(5,2)追下方、黑(3,3)(3,2)支撑上方
-  // 1-idx 字符串（setup 格式）
-  const frames = [
-    'W 5,5 B 5,6 6,5 4,4 4,3',
-    'W 5,5 B 5,6 6,5 4,4 4,3 4,5',   // +黑(3,4)=1-idx(4,5) 打吃
-    'W 5,5 5,4 B 5,6 6,5 4,4 4,3 4,5', // +白(4,3)=1-idx(5,4) 逃
-    'W 5,5 5,4 B 5,6 6,5 4,4 4,3 4,5 6,4', // +黑(5,3)=1-idx(6,4) 打吃
-    'W 5,5 5,4 5,3 B 5,6 6,5 4,4 4,3 4,5 6,4', // +白(4,2)=1-idx(5,3) 逃
-    'W 5,5 5,4 5,3 B 5,6 6,5 4,4 4,3 4,5 6,4 6,3', // +黑(5,2)=1-idx(6,3) 打吃
-  ];
-  frames.forEach((s, i) => {
-    const b = parseGrid(s);
-    const whiteIdxs = [];
-    b.grid.forEach((v, k) => { if (v === GO.WHITE) whiteIdxs.push(k); });
-    const libs = b.liberties(whiteIdxs[0]);
-    console.log('  帧' + (i + 1) + ' 白棋气数=' + libs.length + (libs.length === 1 ? ' [打吃]' : '') + '  白子=' + whiteIdxs.length + ' 黑子=' + b.countStones().b);
-  });
-})();
-
-// ============ 第12课：枷吃（校验课程实际局面：白有≥2气，但每个逃点后黑都能一步提） ============
-console.log('=== L12 枷吃（课程实际局面） ===');
-(function () {
-  const lesson = LESSONS.find(l => l.id === 12);
-  const visual = lesson.steps.find(s => s.type === 'visual');
-  const s = visual.setup;
-  const b = new GoBoard(9); b.grid = parseSetup(s);
-  const whiteIdx = b.grid.findIndex(v => v === GO.WHITE);
-  const libs = b.liberties(whiteIdx);
-  console.log('  setup: ' + s);
-  console.log('  白气=' + libs.map(x => (Math.floor(x / 9) + 1) + ',' + (x % 9 + 1)).join(' '));
-  if (libs.length < 2) report(12, '枷吃演示：白棋应有≥2口气（否则只是普通打吃），实际=' + libs.length);
-  let allTrapped = true;
-  libs.forEach(li => {
-    const b2 = new GoBoard(9); b2.grid = parseSetup(s);
-    b2.grid[li] = GO.WHITE;
-    const wg = b2.groupOf(whiteIdx);
-    const wl = GoBoard.libertiesOf(b2.grid, 9, wg);
-    let canCap = false;
-    for (const wl2 of wl) {
-      const b3 = new GoBoard(9); b3.grid = b2.grid.slice();
-      if (b3.isLegal(GO.BLACK, wl2)) { const r = b3.play(GO.BLACK, wl2); if (r.captured && r.captured.length >= wg.length) canCap = true; }
-    }
-    if (!canCap) { allTrapped = false; report(12, '枷吃不严密：白逃(' + (Math.floor(li / 9) + 1) + ',' + (li % 9 + 1) + ')后黑棋无法一步提掉'); }
-    console.log('    白逃(' + (Math.floor(li / 9) + 1) + ',' + (li % 9 + 1) + ')后 → 黑可提=' + canCap);
-  });
-  console.log('    => 全部逃点都被抓=' + allTrapped);
-})();
-
-// ============ 第13课：双叫吃 + 倒扑 ============
-console.log('=== L13 双叫吃 ===');
-(function () {
-  // 1-idx：黑(3,4)(5,4)(3,6)(5,6)，白(4,4)(4,6)；黑下(4,5)【0-idx(3,4)=31】
-  const s = 'B 3,4 5,4 3,6 5,6 W 4,4 4,6';
-  const b2 = parseGrid(s);
-  const r = b2.play(GO.BLACK, 31); // 0-idx(3,4)
-  const w1 = b2.groupOf(30), w2 = b2.groupOf(32); // 0-idx(3,3)=30,(3,5)=32
-  console.log('  落子合法=' + r.ok + ' 白(4,4)气=' + GoBoard.libertiesOf(b2.grid, 9, w1).length + ' 白(4,6)气=' + GoBoard.libertiesOf(b2.grid, 9, w2).length + '  [各=1则为双叫吃]');
-})();
-console.log('=== L14 倒扑（校验课程实际局面：扑→提→回提整块） ===');
-(function () {
-  const lesson = LESSONS.find(l => l.id === 14);
-  const move = lesson.steps.find(s => s.type === 'move');
-  const b = new GoBoard(9); b.grid = parseSetup(move.setup);
-  const B = GO.BLACK, W = GO.WHITE;
-  const rc1 = i => (Math.floor(i / 9) + 1) + ',' + (i % 9 + 1);
-  // 课程局面：两块白（1,6)(2,6)(3,6) 与 (1,8)(2,8)(3,8)，共用气口 (1,7)=6、(2,7)=15
-  const g1 = b.groupOf(5), g2 = b.groupOf(7);
-  const l1 = GoBoard.libertiesOf(b.grid, 9, g1), l2 = GoBoard.libertiesOf(b.grid, 9, g2);
-  console.log('  白块1气=' + l1.map(rc1).join(' ') + '  白块2气=' + l2.map(rc1).join(' '));
-  if (l1.length !== 2 || l2.length !== 2) report(14, '倒扑演示：两块白应各有 2 口气');
-  // 黑扑 (1,7)=0-idx 6
-  if (!b.isLegal(B, 6)) { report(14, '倒扑：黑扑(1,7)不合法'); return; }
-  b.play(B, 6);
-  // 白提：下 (2,7)=0-idx 15 提掉扑入的黑子
-  if (!b.isLegal(W, 15)) { report(14, '倒扑：白(2,7)提子不合法'); return; }
-  const r1 = b.play(W, 15);
-  if (!r1.captured || r1.captured.length !== 1) report(14, '倒扑：白(2,7)应恰好提掉 1 颗扑入黑子，实际=' + (r1.captured || []).length);
-  const wg = b.groupOf(5);
-  const wl = GoBoard.libertiesOf(b.grid, 9, wg);
-  console.log('  白提后：整块=' + wg.length + ' 子 气=' + wl.map(rc1).join(' '));
-  if (wg.length !== 7 || wl.length !== 1) report(14, '倒扑：白提后应连成 7 子整块且只剩 1 气，实际=' + wg.length + ' 子/' + wl.length + ' 气');
-  // 黑回提 (1,7)
-  if (!b.isLegal(B, 6)) { report(14, '倒扑：黑回提(1,7)不合法'); return; }
-  const r2 = b.play(B, 6);
-  console.log('  黑回提子数=' + (r2.captured || []).length);
-  if (!r2.captured || r2.captured.length !== 7) report(14, '倒扑：黑回提应吃 7 子，实际=' + (r2.captured || []).length);
-  // 对比：不扑直接收气 (2,7)，再吃只能 6 子
-  const c = new GoBoard(9); c.grid = parseSetup(move.setup);
-  c.play(B, 15);
-  const r3 = c.play(B, 6);
-  const n3 = (r3.captured || []).length;
-  console.log('  对比-直接收气后吃=' + n3 + ' 子（扑=7）');
-  if (n3 !== 6) report(14, '倒扑对比：直接收气应只能吃 6 子，实际=' + n3);
-})();
-
-// ============ 第14课：真眼假眼 ============
-console.log('=== L14 真眼假眼 ===');
-(function () {
-  // 真眼：黑环(1,1)0-idx 四周全黑
-  const t1 = 'B 1,2 2,1 2,3 3,2';
-  const b1 = parseGrid(t1);
-  console.log('  真眼候选: eyePoints=' + b1.eyePoints(GO.BLACK).map(x => (Math.floor(x / 9) + 1) + ',' + (x % 9 + 1)).join(' '));
-  // 假眼：看起来围住(1,1)，但下方(3,2)是单独黑子没连上（白可从(2,1)?）——检查(1,1)是否真眼
-  const f1 = 'B 1,2 2,1 2,3 W 3,2';
-  const b2 = parseGrid(f1);
-  console.log('  假眼候选(下方被白占): eyePoints=' + b2.eyePoints(GO.BLACK).map(x => (Math.floor(x / 9) + 1) + ',' + (x % 9 + 1)).join(' '));
-})();
-
-// ============ 第15课：大眼死活 ============
-console.log('=== L15 直四 / 曲四 / 丁四 / 刀五 / 梅花五 ===');
-(function () {
-  const shapes = [
-    ['直四', 'B 2,2 2,3 2,4 2,5 2,6 2,7 3,2 3,7 4,2 4,3 4,4 4,5 4,6 4,7', [3,3,3,4,3,5,3,6]],
-    ['曲四', 'B 2,2 2,3 2,4 2,5 3,2 3,5 4,2 4,3 4,5 5,3 5,4 5,5', [3,3,3,4,4,4]],
-    ['丁四', 'B 2,2 2,3 2,4 2,5 2,6 3,2 3,6 4,2 4,3 4,4 4,5 4,6', [3,3,3,4,3,5]],
-    ['刀五', 'B 2,2 2,3 2,4 2,5 3,2 3,5 4,2 4,3 4,4', [3,3,3,4,4,3]],
-    ['梅花五', 'B 2,2 2,3 2,4 3,2 3,4 4,2 4,3 4,4', [3,3,3,4,4,3]],
-  ];
-  shapes.forEach(([name, s, interior]) => {
-    const b = parseGrid(s);
-    // 检查 interior 是否都是空的
-    const ok = interior.every(i => b.grid[i] === GO.EMPTY);
-    console.log('  ' + name + ': 内部空点=' + ok + ' 棋块气=' + GoBoard.libertiesOf(b.grid, 9, b.groupOf(b.grid.findIndex(v => v === GO.BLACK))).length);
-  });
-})();
-
-// ============ 第 21-40 课：针对性教学校验（回归测试） ============
-console.log('=== 新课（21-40）针对性校验 ===');
-(function () {
-  const rc = i => (Math.floor(i / 9) + 1) + ',' + (i % 9 + 1);
-  // L23 接不归：黑扑 (5,9)，白提 (5,8) 后整块连成 6 子且只剩 1 气
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 23);
-    const setup = lesson.steps.find(s => s.type === 'move').setup;
-    const b = new GoBoard(9); b.grid = parseSetup(setup);
-    const BLACK = GO.BLACK, WHITE = GO.WHITE;
-    if (!b.isLegal(BLACK, 44)) { report(23, '接不归：黑扑(5,9)不合法'); return; }
-    b.play(BLACK, 44);
-    const r = b.play(WHITE, 43); // 白提 (5,8)
-    if (!r.captured || r.captured.length !== 1) report(23, '接不归：白(5,8)应恰好提 1 子，实际=' + (r.captured || []).length);
-    const wg = b.groupOf(34); // 白 (4,8)，提子后仍在
-    const wl = GoBoard.libertiesOf(b.grid, 9, wg);
-    console.log('  L23 接不归：白提后整块=' + wg.length + ' 子 气=' + wl.map(rc).join(' '));
-    if (wg.length !== 6 || wl.length !== 1) report(23, '接不归：白提后应连成 6 子整块且剩 1 气，实际=' + wg.length + ' 子/' + wl.length + ' 气');
-  })();
-  // L24 打二还一：黑提两子（打二）→ 白可立刻回提一子（合法、非打劫）→ 黑不能立刻再提
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 24);
-    const setup = lesson.steps.find(s => s.type === 'move').setup;
-    const b = new GoBoard(9); b.grid = parseSetup(setup);
-    const BLACK = GO.BLACK, WHITE = GO.WHITE;
-    const r1 = b.play(BLACK, 19); // 黑下 (3,2) 打二
-    if (!r1.ok || !r1.captured || r1.captured.length !== 2) { report(24, '打二还一：黑(3,2)应恰好提 2 子'); return; }
-    if (b.ko !== -1) report(24, '打二还一：提两子不应产生劫点');
-    const r2 = b.play(WHITE, 20); // 白下 (3,3) 还一
-    if (!r2.ok || !r2.captured || r2.captured.length !== 1) { report(24, '打二还一：白(3,3)回提应合法且恰提 1 子（不是打劫）'); return; }
-    const backLegal = b.isLegal(BLACK, 19); // 黑不能再下 (3,2)
-    console.log('  L24 打二还一：黑提2子 → 白回提1子 合法 → 黑立刻再提合法?=' + backLegal + '（应为 false）');
-    if (backLegal) report(24, '打二还一：白还一后黑不应能立刻再提 (3,2)');
-  })();
-  // L25 引征：有引征局面征子应失败；无引征局面（move 步骤）征子应成立；demo 末帧白连上引征子
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 25);
-    const quiz = lesson.steps.find(s => s.type === 'quiz');
-    const bq = parseGrid(quiz.setup); // 有引征（接应子在 (7,2)）
-    const rQ = bq.ladderSucceeds(40);
-    console.log('  L25 引征：有引征局面 ladderSucceeds=' + rQ + '（应=false）');
-    if (rQ) report(25, '引征：有引征时征子应失败（引征子须在有效追杀路线上）');
-    const mv = lesson.steps.find(s => s.type === 'move');
-    const bm = parseGrid(mv.setup);
-    bm.play(GO.BLACK, 31); // 黑 (4,5) 打吃后，无引征
-    const rM = bm.ladderSucceeds(40);
-    console.log('  L25 引征：无引征局面 ladderSucceeds=' + rM + '（应=true）');
-    if (!rM) report(25, '引征：无引征时征子应成立');
-    const frames = lesson.steps.find(s => s.type === 'demo').frames;
-    // 有引征路线的最后一帧：白 (7,3) 与引征子 (7,2) 同时在盘上（demo 尾部还有无引征对比帧）
-    const fConn = frames.filter(f => f.board).map(f => parseGrid(f.board))
-      .filter(bg => bg.grid[55] === GO.WHITE && bg.grid[56] === GO.WHITE).pop();
-    const g = fConn.groupOf(56); // 白 (7,3)
-    const gl = GoBoard.libertiesOf(fConn.grid, 9, g);
-    console.log('  L25 引征：有引征末帧白块=' + g.length + ' 子 气=' + gl.length + ' 连上引征子(7,2)=' + g.includes(55));
-    if (!g.includes(55) || gl.length < 3) report(25, '引征：末帧白逃(7,3)应与引征子(7,2)连上且气≥3，实际块=' + g.length + ' 气=' + gl.length);
-    // 无引征对比末帧：白 (7,3) 连不上任何接应，黑 (8,3) 打吃后整块仍只剩 1 气
-    const bf = parseGrid(frames[frames.length - 1].board);
-    const g2 = bf.groupOf(56);
-    const gl2 = GoBoard.libertiesOf(bf.grid, 9, g2);
-    console.log('  L25 引征：无引征末帧白块=' + g2.length + ' 子 气=' + gl2.length + ' 含引征子(7,2)=' + g2.includes(55) + '（应=5/1/false）');
-    if (g2.includes(55) || gl2.length !== 1) report(25, '引征：无引征对比末帧白棋应只剩 1 气且无接应');
-  })();
-  // L20、L39、L40 共用英国围棋协会公开的 52 手 9 路职业示例棋谱；全谱必须连续合法
-  (function () {
-    const sgfMoves = 'ee ce ge dc cf bf cg de ef bg ec eb fc df dg eg eh fg fh gg bh he hd gf fe ah gh hh hi hg if ch dh bi hf di ff ei ih db fb fa ga ea gb ed fd dd ig fi gi ci'.split(' ');
-    const b = new GoBoard(9);
-    const captures = [];
-    sgfMoves.forEach((coord, i) => {
-      const color = i % 2 === 0 ? GO.BLACK : GO.WHITE;
-      const idx = (coord.charCodeAt(1) - 97) * 9 + (coord.charCodeAt(0) - 97);
-      const result = b.play(color, idx);
-      if (!result.ok) report(20, '真实连续棋谱第' + (i + 1) + '手 ' + coord + ' 不合法');
-      if (result.captured && result.captured.length) captures.push([i + 1, result.captured.length]);
-    });
-    const totals = b.countStones();
-    console.log('  L20/39/40 真实棋谱：52手合法，提子=' + JSON.stringify(captures) + '，终局黑=' + totals.b + '子 白=' + totals.w + '子');
-    if (JSON.stringify(captures) !== JSON.stringify([[34, 1], [49, 6]])) report(20, '真实棋谱提子记录应为第34手提1子、第49手提6子');
-    if (totals.b !== 25 || totals.w !== 20) report(20, '真实棋谱终局盘面应为黑25子、白20子');
-    // 终局 H5 白子为死子；移除后按课程的中国面积规则与 7.5 贴目复核胜负
-    b.grid[43] = GO.EMPTY;
-    const live = b.countStones();
-    const territory = b.territory();
-    const blackScore = live.b + territory.black;
-    const whiteScore = live.w + territory.white + 7.5;
-    console.log('  L40 终局数地：黑=' + blackScore + ' 白=' + whiteScore + '，白胜=' + (whiteScore - blackScore));
-    if (live.b !== 25 || live.w !== 19 || territory.black !== 18 || territory.white !== 19 || blackScore !== 43 || whiteScore !== 45.5) {
-      report(20, '终局移除 H5 死子后应为黑43、白45.5，白胜2.5');
-    }
-  })();
-  // L10 固定残局：玩家看到的题面必须与答案中的数目、地和贴目完全一致
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 10);
-    const visual = lesson && lesson.steps.find(s => s.type === 'visual');
-    const quiz = lesson && lesson.steps.find(s => s.type === 'quiz');
-    if (!visual || !quiz || lesson.steps.length !== 2) {
-      report(10, '固定残局应只有“自行数地”和“选择答案”两个步骤');
-      return;
-    }
-    if (visual.setup !== quiz.setup) report(10, '观察题与选择题必须使用同一个残局');
-    const b = parseGrid(quiz.setup);
-    const live = b.countStones();
-    const territory = b.territory();
-    const blackScore = live.b + territory.black;
-    const whiteScore = live.w + territory.white + 7.5;
-    console.log('  L10 固定残局：黑=' + blackScore + ' 白=' + whiteScore + '，白胜=' + (whiteScore - blackScore));
-    if (live.b !== 25 || live.w !== 19 || territory.black !== 18 || territory.white !== 19 || blackScore !== 43 || whiteScore !== 45.5) {
-      report(10, '固定残局应为黑25子+18地=43、白19子+19地+7.5贴目=45.5');
-    }
-  })();
-  // L29 同气对杀：封闭棋形中黑 F6、白 E6 各 2 气，黑先可用三手顺序提白
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 29);
-    const setup = lesson.steps.find(s => s.type === 'move').setup;
-    const b = new GoBoard(9); b.grid = parseSetup(setup);
-    const blackLibs = GoBoard.libertiesOf(b.grid, 9, b.groupOf(32)); // 黑 F6
-    const whiteLibs = GoBoard.libertiesOf(b.grid, 9, b.groupOf(31)); // 白 E6
-    console.log('  L29 同气对杀：黑气=' + blackLibs.length + ' 白气=' + whiteLibs.length);
-    if (blackLibs.length !== 2 || whiteLibs.length !== 2) report(29, '同气对杀：黑白应各 2 气，实际黑=' + blackLibs.length + ' 白=' + whiteLibs.length);
-    if (!b.isLegal(GO.BLACK, 30)) { report(29, '同气对杀：黑 D6 紧气不合法'); return; }
-    b.play(GO.BLACK, 30); // 黑 D6 紧白
-    if (b.liberties(31).length !== 1) report(29, '同气对杀：黑 D6 后白 E6 应只剩 1 气');
-    b.play(GO.WHITE, 33); // 白 G6 反紧黑
-    if (b.liberties(32).length !== 1) report(29, '同气对杀：白 G6 后黑 F6 应只剩 1 气');
-    const r = b.play(GO.BLACK, 40); // 黑 E5 先提白
-    const cap = (r.captured || []).includes(31);
-    console.log('  L29 完整对杀：黑 D6 → 白 G6 → 黑 E5，提白=' + cap);
-    if (!cap) report(29, '同气对杀：黑先走完整顺序后应提掉白 E6');
-  })();
-  // L37 挂角示例必须黑白交替，且坐标与棋子一致
-  (function () {
-    const frames = LESSONS.find(l => l.id === 37).steps.find(s => s.type === 'demo').frames;
-    const expected = [[GO.BLACK, 21], [GO.WHITE, 32], [GO.BLACK, 29], [GO.WHITE, 33]];
-    let prev = new Array(81).fill(GO.EMPTY);
-    frames.forEach((f, i) => {
-      const grid = parseSetup(f.board);
-      const added = [];
-      for (let k = 0; k < 81; k++) if (prev[k] === GO.EMPTY && grid[k] !== GO.EMPTY) added.push([grid[k], k]);
-      if (added.length !== 1 || added[0][0] !== expected[i][0] || added[0][1] !== expected[i][1]) {
-        report(37, '挂角演示第' + (i + 1) + '帧的落子颜色或坐标不正确');
-      }
-      prev = grid;
-    });
-  })();
-  // L40 先手收官：黑 C8 打吃后，白 B7 能正常长气应对
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 40);
-    const setup = lesson.steps.find(s => s.type === 'move').setup;
-    const b = new GoBoard(9); b.grid = parseSetup(setup);
-    b.play(GO.BLACK, 11);
-    const atari = b.grid[10] === GO.WHITE && b.liberties(10).length === 1 && b.liberties(10)[0] === 19;
-    if (!atari) report(40, '先手收官：黑 C8 应把白 B8 打吃，最后一气为 B7');
-    const r = b.play(GO.WHITE, 19);
-    if (!r.ok || b.liberties(10).length < 2) report(40, '先手收官：白 B7 应当合法并长出气');
-  })();
-  // L36 劫争：黑提劫后白不能立刻回提 (2,2)
-  (function () {
-    const lesson = LESSONS.find(l => l.id === 36);
-    const setup = lesson.steps.find(s => s.type === 'demo').frames[1].board;
-    const b = new GoBoard(9); b.grid = parseSetup(setup);
-    b.ko = 10; // 黑提劫后的劫点 (2,2)
-    const koLegal = b.isLegal(GO.WHITE, 10);
-    console.log('  L36 劫争：白立刻回提(2,2) 合法?=' + koLegal);
-    if (koLegal) report(36, '劫争：白不应能立刻回提劫(2,2)');
-  })();
-  // 征子判定（go-core.ladderSucceeds，AI 避征子依赖）
-  (function () {
-    const cases = [
-      ['无引征(L11局面)', 'W 5,5 B 5,6 6,5 4,4 4,3 4,5', 40, true],
-      ['有引征(接应子在路线(7,2)上)', 'W 5,5 7,2 B 5,6 6,5 4,4 4,3 4,5', 40, false],
-      ['普通打吃(可逃)', 'W 5,5 B 4,5 5,6 6,5', 40, false],
-      ['角部无处可逃', 'W 1,2 B 2,2 1,3', 1, true],
-    ];
-    cases.forEach(([name, setup, idx, expect]) => {
-      const b = parseGrid(setup);
-      const r = b.ladderSucceeds(idx);
-      console.log('  征子判定·' + name + '：ladderSucceeds=' + r + '（应=' + expect + '）');
-      if (r !== expect) report('AI', '征子判定错误：' + name + ' 应=' + expect + ' 实际=' + r);
-    });
-  })();
-  // L21/L22/L26/L27/L30：吃子路线与对杀局面的引擎级验证
-  (function () {
-    const BLACK = GO.BLACK, WHITE = GO.WHITE;
-    // L21 虎口：白下进虎口 (4,5) 应只剩 1 气；关门吃黑 (5,4) 应提白 (4,4)
-    (function () {
-      const b = parseGrid('B 4,4 4,6 5,5');
-      b.play(WHITE, 31);
-      const libs = b.liberties(31).length;
-      console.log('  L21 虎口：白入虎口后气=' + libs + '（应=1）');
-      if (libs !== 1) report(21, '虎口：白下进虎口后应只剩 1 气，实际=' + libs);
-      const b2 = parseGrid('W 4,4 B 3,4 4,3 4,5');
-      const r = b2.play(BLACK, 39);
-      const ok = r.captured && r.captured.length === 1 && r.captured.includes(30);
-      console.log('  L21 关门吃：黑(5,4)提子=' + (r.captured || []).length + '（应=1 且为白(4,4)）');
-      if (!ok) report(21, '关门吃：黑(5,4)应恰好提掉白(4,4)');
-    })();
-    // L22 抱吃：正确方向 (5,4) 白逃 (4,5) 后仍 1 气、黑 (4,6) 一步提 2 子；错误方向 (4,5) 白逃后气≥2
-    (function () {
-      const b = parseGrid('B 3,4 4,3 3,5 5,5 W 4,4');
-      b.play(BLACK, 39); // 黑 (5,4)
-      const l1 = b.liberties(30).length;
-      b.play(WHITE, 31); // 白逃 (4,5)
-      const l2 = b.liberties(30).length;
-      const r = b.play(BLACK, 32); // 黑 (4,6) 提
-      const cap = (r.captured || []).length;
-      console.log('  L22 抱吃：黑(5,4)后白气=' + l1 + ' 逃后气=' + l2 + ' 黑(4,6)提=' + cap + '（应=1/1/2）');
-      if (l1 !== 1 || l2 !== 1 || cap !== 2) report(22, '抱吃：正确方向应 1气→逃后仍1气→一步提2子');
-      const w = parseGrid('B 3,4 4,3 3,5 5,5 W 4,4');
-      w.play(BLACK, 31); // 错误方向 (4,5)
-      w.play(WHITE, 39); // 白逃 (5,4)
-      const l3 = w.liberties(30).length;
-      console.log('  L22 抱吃：错误方向白逃后气=' + l3 + '（应≥2，跑掉了）');
-      if (l3 < 2) report(22, '抱吃：错误方向应让白棋跑出（气≥2），实际=' + l3);
-    })();
-    // L26 边线：关门(2,3)打吃 → 白逃(1,2)后 2 子整块剩 1 气 → 黑(1,3)提 2 子
-    (function () {
-      const b = parseGrid('W 2,2 B 2,1 3,2 1,1');
-      const l1 = b.liberties(10).length;
-      console.log('  L26 边线：白(2,2)初始气=' + l1 + '（应=2）');
-      if (l1 !== 2) report(26, '边线：白(2,2)初始应有 2 气，实际=' + l1);
-      b.play(BLACK, 11); // 黑关门 (2,3)
-      const l2 = b.liberties(10).length;
-      console.log('  L26 边线：黑(2,3)关门后白气=' + l2 + '（应=1，打吃）');
-      if (l2 !== 1) report(26, '边线：黑(2,3)关门后白应只剩 1 气，实际=' + l2);
-      b.play(WHITE, 1); // 白逃 (1,2)
-      const wg = b.groupOf(1);
-      const l3 = GoBoard.libertiesOf(b.grid, 9, wg).length;
-      console.log('  L26 边线：白逃(1,2)后块=' + wg.length + '子 气=' + l3 + '（应=2/1）');
-      if (wg.length !== 2 || l3 !== 1) report(26, '边线：白逃(1,2)后应为 2 子整块且只剩 1 气');
-      const r = b.play(BLACK, 2); // 黑 (1,3) 提子
-      const cap = (r.captured || []).length;
-      console.log('  L26 边线：黑(1,3)提=' + cap + '（应=2）');
-      if (cap !== 2) report(26, '边线：黑(1,3)应提掉 2 颗白子，实际=' + cap);
-    })();
-    // L27 长气：黑两块前气=2，长 (4,3) 或 (4,6) 后气≥3；紧气：(4,3)打吃 → 白逃(4,6)仍1气 → 黑(4,7)提3子
-    (function () {
-      const b = parseGrid('B 4,4 4,5 W 3,4 3,5 5,4 5,5');
-      const l1 = b.liberties(30).length;
-      b.play(BLACK, 29);
-      const l2 = b.liberties(30).length;
-      const b2 = parseGrid('B 4,4 4,5 W 3,4 3,5 5,4 5,5');
-      b2.play(BLACK, 32); // (4,6) 同样应成立
-      const l2b = b2.liberties(30).length;
-      console.log('  L27 长气：长气前=' + l1 + ' 长(4,3)后=' + l2 + ' 长(4,6)后=' + l2b + '（应=2/≥3/≥3）');
-      if (l1 !== 2 || l2 < 3 || l2b < 3) report(27, '长气：黑长(4,3)或(4,6)后气应≥3');
-      const c = parseGrid('W 4,4 4,5 B 3,4 3,5 5,4 5,5 3,6 5,6');
-      const w1 = c.liberties(30).length;
-      c.play(BLACK, 29); // 紧气 (4,3)
-      const w2 = c.liberties(30).length;
-      c.play(WHITE, 32); // 白逃 (4,6)
-      const w3 = c.liberties(30).length;
-      const r = c.play(BLACK, 33); // 黑 (4,7) 提
-      const cap = (r.captured || []).length;
-      console.log('  L27 紧气：白气=' + w1 + '→紧气后=' + w2 + '→逃后=' + w3 + ' 黑(4,7)提=' + cap + '（应=2/1/1/3）');
-      if (w1 !== 2 || w2 !== 1 || w3 !== 1 || cap !== 3) report(27, '紧气：应为 2气→紧气打吃→逃后仍1气→提3子');
-      // 错误方向：黑 (4,6) 紧气后白逃 (4,3) 应有≥2气（跑掉）
-      const w = parseGrid('W 4,4 4,5 B 3,4 3,5 5,4 5,5 3,6 5,6');
-      w.play(BLACK, 32);
-      w.play(WHITE, 29);
-      const wl = w.liberties(30).length;
-      console.log('  L27 紧气：错误方向白逃后气=' + wl + '（应≥2，跑掉了）');
-      if (wl < 2) report(27, '紧气：错误方向应让白棋跑出（气≥2），实际=' + wl);
-    })();
-    // L30 有眼杀无眼：(1,1) 是黑真眼；白下进去是禁入点
-    (function () {
-      const b = parseGrid('B 1,2 2,1 2,2 3,1 3,2 W 4,1 4,2');
-      const eye = b.eyePoints(BLACK).includes(0);
-      const legal = b.isLegal(WHITE, 0);
-      console.log('  L30 有眼杀无眼：(1,1)是黑眼=' + eye + ' 白下入合法=' + legal + '（应=true/false）');
-      if (!eye || legal) report(30, '有眼杀无眼：(1,1)应为黑真眼且白下入非法');
-    })();
-  })();
-})();
-
-// ============ move 步骤模拟：按预期落子并调用 check（支持多阶段 nextPlayer） ============
-console.log('=== move 步骤模拟（预期落子 → check 必须 done） ===');
-ALL_LESSONS.forEach(lesson => {
-  lesson.steps.forEach((step, si) => {
-    if (step.type !== 'move') return;
-    const b = new GoBoard(9);
-    b.__lessonId = lesson.id;
-    if (step.setup) b.grid = parseSetup(step.setup);
-    b.ko = (step.ko != null) ? step.ko : -1;
-    // 深度优先搜索一条能让 check 最终 done 的落子路径（阶段内逐手切换 nextPlayer）
-    let found = null;
-    const MAX_DEPTH = 10;
-    (function dfs(board, color, depth, path) {
-      if (found || depth > MAX_DEPTH) return;
-      for (let i = 0; i < 81; i++) {
-        if (found) return;
-        if (board.grid[i] !== GO.EMPTY) continue;
-        const b2 = new GoBoard(9); b2.grid = board.grid.slice(); b2.ko = board.ko;
-        if (!b2.isLegal(color, i)) continue;
-        b2.play(color, i);
-        const r = step.check({ board: b2, lastMove: i, passed: false });
-        const name = (Math.floor(i / 9) + 1) + ',' + (i % 9 + 1);
-        if (r && r.done) { found = path.concat([name]); return; }
-        if (r && r.nextPlayer != null) dfs(b2, r.nextPlayer, depth + 1, path.concat([name]));
-      }
-    })(b, step.playerColor, 0, []);
-    // 若该步骤允许放弃，也试 passed
-    let passOk = false;
-    const p = step.check({ board: b, lastMove: null, passed: true });
-    if (p && p.done) passOk = true;
-    if (!found && !passOk) {
-      report(lesson.id, '步骤' + (si + 1) + '(move)：没有任何落子序列能让 check 通过！');
-    } else {
-      const label = found ? (found.length === 1 ? '可行落子=' + found[0] : '可行路径=' + found.join(' → ')) : '无落子';
-      console.log('  L' + lesson.id + ' 步骤' + (si + 1) + '：' + label + (passOk ? ' 或放弃一手' : ''));
-    }
-  });
-});
-
-console.log('=========== 校验结束，问题数：' + issues + ' ===========');
-process.exit(issues ? 1 : 0);
+console.log('课程数：' + LESSONS.length + '，问题数：' + issues);
+if (issues) process.exitCode = 1;
