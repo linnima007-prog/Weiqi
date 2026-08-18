@@ -12,8 +12,10 @@ const fs = require('fs');
 const root = path.join(__dirname, '..');
 require(path.join(root, 'js', 'go-core.js'));
 require(path.join(root, 'js', 'lessons.js'));
+require(path.join(root, 'js', 'video-course.js'));
 const GO = globalThis.GO;
 const LESSONS = globalThis.LESSONS;
+const ALL_LESSONS = LESSONS.concat(globalThis.VIDEO_LESSONS || []);
 const parseSetup = globalThis.parseSetup;
 
 let issues = 0;
@@ -67,7 +69,7 @@ function parseGrid(str) {
 }
 
 // ============ 对现有 + 新课程全量校验 ============
-LESSONS.forEach(lesson => {
+ALL_LESSONS.forEach(lesson => {
   const b = new GoBoard(9);
   b.__lessonId = lesson.id;
   lesson.steps.forEach((step, si) => {
@@ -90,7 +92,7 @@ LESSONS.forEach(lesson => {
         checkHighlights(board, f.highlights, fl);
         checkLibOf(board, f.highlightLibs, fl);
         // 帧间增量检查（提子帧跳过）
-        if (prev) {
+        if (prev && !f.reset) {
           const delta = [];
           for (let i = 0; i < 81; i++) {
             if (board.grid[i] !== prev.grid[i]) delta.push({ i, from: prev.grid[i], to: board.grid[i] });
@@ -585,7 +587,7 @@ console.log('=== 新课（21-40）针对性校验 ===');
 
 // ============ move 步骤模拟：按预期落子并调用 check（支持多阶段 nextPlayer） ============
 console.log('=== move 步骤模拟（预期落子 → check 必须 done） ===');
-LESSONS.forEach(lesson => {
+ALL_LESSONS.forEach(lesson => {
   lesson.steps.forEach((step, si) => {
     if (step.type !== 'move') return;
     const b = new GoBoard(9);

@@ -5,6 +5,7 @@
 (function () {
   'use strict';
   const GO = window.GO, GoBoard = window.GoBoard;
+  const VIDEO_LESSONS = window.VIDEO_LESSONS || [];
   const SIZE = 9;
   const KOMI = 7.5;
   const $ = id => document.getElementById(id);
@@ -14,9 +15,14 @@
 
   // ---------------- 应用状态 ----------------
   const app = {
-    mode: 'tutorial',        // 'tutorial' | 'free'
+    mode: 'tutorial',        // 'tutorial' | 'video' | 'free'
+    courseMode: 'tutorial',  // 自由对局时仍记住侧栏最后展示的课程目录
     lesson: 0,
     step: 0,
+    tutorialLesson: 0,
+    tutorialStep: 0,
+    videoLesson: 0,
+    videoStep: 0,
     board: new GoBoard(SIZE),
     playerColor: GO.BLACK,
     turn: GO.BLACK,
@@ -41,6 +47,22 @@
   // 进度持久化：{ lessonId: true }
   const progress = JSON.parse(localStorage.getItem('weiqiProgress') || '{}');
   function saveProgress() { localStorage.setItem('weiqiProgress', JSON.stringify(progress)); }
+  const videoProgress = JSON.parse(localStorage.getItem('weiqiVideoCourseProgress') || '{}');
+  function saveVideoProgress() { localStorage.setItem('weiqiVideoCourseProgress', JSON.stringify(videoProgress)); }
+
+  function isCourseMode() { return app.mode === 'tutorial' || app.mode === 'video'; }
+  function activeLessons() { return app.courseMode === 'video' ? VIDEO_LESSONS : LESSONS; }
+  function activeProgress() { return app.courseMode === 'video' ? videoProgress : progress; }
+  function saveActiveProgress() {
+    if (app.courseMode === 'video') saveVideoProgress();
+    else saveProgress();
+  }
+  function nextButtonLabel(lesson) {
+    const lessons = activeLessons();
+    if (app.step < lesson.steps.length - 1) return '下一步 →';
+    if (app.lesson < lessons.length - 1) return '下一课 →';
+    return app.courseMode === 'video' ? '完成实验课 ✓' : '完成教程 🎉';
+  }
 
   // ---------------- 工具函数 ----------------
   function canvasToIntersection(cv, e) {
@@ -101,8 +123,8 @@
     stopHighlightAnim();
     const start = performance.now();
     const loop = t => {
-      const step = LESSONS[app.lesson].steps[app.step];
-      if (app.mode !== 'tutorial' || step.type !== 'visual' || app.stepDone) { stopHighlightAnim(); return; }
+      const step = activeLessons()[app.lesson].steps[app.step];
+      if (!isCourseMode() || step.type !== 'visual' || app.stepDone) { stopHighlightAnim(); return; }
       const phase = ((t - start) / 1000) % 1;
       const highlights = stepHighlights(step).map(h => ({ ...h, phase }));
       drawBoard(canvas, app.board, { highlights });
@@ -200,18 +222,26 @@
 
   // ---------------- 课程目录 ----------------
   function isLessonUnlocked(index) {
+    if (app.courseMode === 'video') return true;
     return index === 0 || progress[LESSONS[index - 1].id] === true;
   }
 
   function renderLessonList() {
+    const lessons = activeLessons();
+    const courseProgress = activeProgress();
     const ul = $('lessonList');
     ul.innerHTML = '';
-    LESSONS.forEach((l, i) => {
+    $('catalogTitle').textContent = app.courseMode === 'video' ? '视频转课实验' : '课程目录';
+    $('catalogNote').classList.toggle('hidden', app.courseMode !== 'video');
+    $('catalogNote').textContent = app.courseMode === 'video'
+      ? '独立对照课，不影响40课进度。先体验，再切回原课程比较。'
+      : '';
+    lessons.forEach((l, i) => {
       const li = document.createElement('li');
       const unlocked = isLessonUnlocked(i);
       li.className = 'lesson-item' + (i === app.lesson ? ' active' : '') + (unlocked ? '' : ' locked');
-      const done = progress[l.id] === true;
-      li.innerHTML = '<span class="lesson-num">' + l.id + '</span>' +
+      const done = courseProgress[l.id] === true;
+      li.innerHTML = '<span class="lesson-num">' + (app.courseMode === 'video' ? 'V' : l.id) + '</span>' +
         '<span class="lesson-name">' + l.title + '</span>' +
         (done ? '<span class="lesson-check">✓</span>' : '');
       li.addEventListener('click', () => {
@@ -219,12 +249,23 @@
           showMsg('请先完成上一课，再开启这一课。', 'warn');
           return;
         }
-        if (app.mode !== 'tutorial') switchMode('tutorial');
+        if (!isCourseMode()) switchMode(app.courseMode);
         app.lesson = i; app.step = 0; renderStep();
       });
       ul.appendChild(li);
     });
     // 进度条
+    if (app.courseMode === 'video') {
+      const lesson = lessons[0];
+      const done = courseProgress[lesson.id] === true;
+      const replaying = done && app.step < lesson.steps.length - 1;
+      const stage = (done && !replaying) ? lesson.steps.length : Math.min(app.step + 1, lesson.steps.length);
+      $('progressFill').style.width = (stage / lesson.steps.length * 100) + '%';
+      $('progressText').textContent = done && !replaying
+        ? '实验课已完成 · 可随时重玩'
+        : (replaying ? '重新体验 ' : '体验进度 ') + stage + ' / ' + lesson.steps.length + ' 环节';
+      return;
+    }
     let completed = 0;
     LESSONS.forEach(l => { if (progress[l.id]) completed++; });
     $('progressFill').style.width = (completed / LESSONS.length * 100) + '%';
@@ -236,7 +277,7 @@
 
   // ---------------- 教程流程 ----------------
   function renderStepDots() {
-    const lesson = LESSONS[app.lesson];
+    const lesson = activeLessons()[app.lesson];
     const dots = $('stepDots');
     dots.innerHTML = '';
     lesson.steps.forEach((s, i) => {
@@ -271,7 +312,7 @@
         exp.innerHTML = (i === step.answer ? '✅ 答对了！' : '❌ 正确答案：') + step.options[step.answer] + '。<br>' + step.explanation;
         panel.appendChild(exp);
         const next = $('btnNext');
-        next.textContent = (app.step < LESSONS[app.lesson].steps.length - 1) ? '下一步 →' : (app.lesson < LESSONS.length - 1 ? '下一课 →' : '完成教程 🎉');
+        next.textContent = nextButtonLabel(activeLessons()[app.lesson]);
         next.classList.remove('hidden');
       });
       wrap.appendChild(b);
@@ -282,9 +323,11 @@
   function renderStep() {
     stopHighlightAnim();
     cancelDemo();
-    const lesson = LESSONS[app.lesson];
+    const lesson = activeLessons()[app.lesson];
     const step = lesson.steps[app.step];
-    $('lessonTitle').textContent = '第 ' + lesson.id + ' 课 · ' + lesson.title;
+    $('lessonTitle').textContent = app.courseMode === 'video'
+      ? '视频转课实验 · ' + lesson.title
+      : '第 ' + lesson.id + ' 课 · ' + lesson.title;
     renderStepDots();
 
     const panel = $('stepPanel');
@@ -306,7 +349,7 @@
       p.innerHTML = step.content;
       panel.appendChild(p);
       const next = $('btnNext');
-      next.textContent = '继续 →';
+      next.textContent = nextButtonLabel(lesson);
       next.classList.remove('hidden');
       // 文字步骤也刷新棋盘为空白，避免残留上一课的画面
       app.board = new GoBoard(SIZE);
@@ -346,7 +389,9 @@
       p.innerHTML = step.text;
       panel.appendChild(p);
       const next = $('btnNext');
-      next.textContent = '我看明白了，继续 →';
+      next.textContent = (app.step < lesson.steps.length - 1)
+        ? '我看明白了，继续 →'
+        : nextButtonLabel(lesson);
       next.classList.remove('hidden');
       $('btnRestartStep').classList.add('hidden');
       $('btnHint').classList.add('hidden');
@@ -380,15 +425,14 @@
     app.stepDone = true;
     if (r && r.successMsg) showMsg(r.successMsg, 'success');
     else showMsg('✅ 完成本步！', 'success');
-    const lesson = LESSONS[app.lesson];
+    const lesson = activeLessons()[app.lesson];
     const btn = $('btnNext');
-    btn.textContent = (app.step < lesson.steps.length - 1) ? '下一步 →'
-      : (app.lesson < LESSONS.length - 1 ? '下一课 →' : '完成教程 🎉');
+    btn.textContent = nextButtonLabel(lesson);
     btn.classList.remove('hidden');
   }
 
   function playTutorialMove(i) {
-    const step = LESSONS[app.lesson].steps[app.step];
+    const step = activeLessons()[app.lesson].steps[app.step];
     const b = app.board;
     if (b.grid[i] !== GO.EMPTY) { showMsg('⚠️ 这个交叉点上已经有棋子了。', 'warn'); return; }
     if (!b.isLegal(app.turn, i)) {
@@ -422,16 +466,16 @@
 
   // 教程棋盘事件
   canvas.addEventListener('click', e => {
-    if (app.mode !== 'tutorial' || app.freeEmbedded) return;
-    const step = LESSONS[app.lesson].steps[app.step];
+    if (!isCourseMode() || app.freeEmbedded) return;
+    const step = activeLessons()[app.lesson].steps[app.step];
     if (step.type !== 'move' || app.stepDone) return;
     const i = canvasToIntersection(canvas, e);
     if (i < 0) return;
     playTutorialMove(i);
   });
   canvas.addEventListener('mousemove', e => {
-    if (app.mode !== 'tutorial' || app.freeEmbedded) return;
-    const step = LESSONS[app.lesson].steps[app.step];
+    if (!isCourseMode() || app.freeEmbedded) return;
+    const step = activeLessons()[app.lesson].steps[app.step];
     if (step.type === 'visual' || step.type === 'demo') return; // 演示/动画步骤由各自绘制流程负责
     if (step.type !== 'move' || app.stepDone) { drawBoard(canvas, app.board, { last: app.lastMove, highlights: stepHighlights(step) }); return; }
     const i = canvasToIntersection(canvas, e);
@@ -440,14 +484,14 @@
     drawBoard(canvas, app.board, { hover: i, last: app.lastMove, hoverColor: app.turn, illegal: !!illegal, highlights: stepHighlights(step) });
   });
   canvas.addEventListener('mouseleave', () => {
-    const step = LESSONS[app.lesson].steps[app.step];
+    const step = activeLessons()[app.lesson].steps[app.step];
     if (step.type === 'demo') return; // demo 画面由 runDemo 控制，避免重绘干扰帧内淡出
     drawBoard(canvas, app.board, { last: app.lastMove, highlights: stepHighlights(step) });
   });
 
   // 教程按钮
   $('btnHint').addEventListener('click', () => {
-    const step = LESSONS[app.lesson].steps[app.step];
+    const step = activeLessons()[app.lesson].steps[app.step];
     const hint = step.hint || '想一想，看看任务描述。';
     const box = $('hintBox');
     box.innerHTML = '💡 提示：' + hint;
@@ -455,25 +499,27 @@
   });
   $('btnRestartStep').addEventListener('click', renderStep);
   $('btnNext').addEventListener('click', () => {
-    const lesson = LESSONS[app.lesson];
+    const lessons = activeLessons();
+    const lesson = lessons[app.lesson];
     if (app.step < lesson.steps.length - 1) {
       app.step++;
       renderStep();
     } else {
-      progress[lesson.id] = true;
-      saveProgress();
+      activeProgress()[lesson.id] = true;
+      saveActiveProgress();
       renderLessonList();
-      if (app.lesson < LESSONS.length - 1) {
+      if (app.lesson < lessons.length - 1) {
         app.lesson++;
         app.step = 0;
         renderStep();
       } else {
-        showCompletion();
+        if (app.courseMode === 'video') showVideoCourseCompletion();
+        else showCompletion();
       }
     }
   });
   $('btnReplay').addEventListener('click', () => {
-    const step = LESSONS[app.lesson].steps[app.step];
+    const step = activeLessons()[app.lesson].steps[app.step];
     if (step.type !== 'demo') return;
     $('btnNext').classList.add('hidden');
     $('btnReplay').classList.add('hidden');
@@ -502,6 +548,17 @@
     $('modalClose').onclick = () => { closeModal(); switchMode('free'); };
   }
 
+  function showVideoCourseCompletion() {
+    showModal(
+      '<h3>🎬 视频转课体验完成</h3>' +
+      '<p>你完成了从“角的效率”到“拆边与方向选择”的整条推理链。</p>' +
+      '<p><b>建议对比：</b>回到40课，依次体验第17、18、31、33课。比较两点：哪套让你更快理解，哪套让你在新局面里更会下。</p>' +
+      '<p>实验课强在故事连续；40课强在知识覆盖与分项训练。最终要看你的实际体验，而不是课程数量。</p>'
+    );
+    $('modalClose').textContent = '去对比40课 ▶';
+    $('modalClose').onclick = () => { closeModal(); switchMode('tutorial'); };
+  }
+
   // ---------------- 第10课嵌入式自由对局 ----------------
   function startEmbeddedFree(step) {
     app.freeEmbedded = true;
@@ -518,9 +575,16 @@
   function switchMode(mode) {
     stopHighlightAnim();
     cancelDemo();
+    if (isCourseMode()) {
+      app[app.mode + 'Lesson'] = app.lesson;
+      app[app.mode + 'Step'] = app.step;
+    }
     app.mode = mode;
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-    if (mode === 'tutorial') {
+    if (mode === 'tutorial' || mode === 'video') {
+      app.courseMode = mode;
+      app.lesson = app[mode + 'Lesson'] || 0;
+      app.step = app[mode + 'Step'] || 0;
       app.freeEmbedded = false;
       $('freePanel').classList.add('hidden');
       $('tutorialPanel').classList.remove('hidden');

@@ -54,6 +54,12 @@ body {
   border-color: var(--primary);
   color: #fff;
 }
+.tab.video-course-tab { border-color: rgba(241, 196, 15, 0.72); color: #ffeaa7; }
+.tab.video-course-tab.active {
+  background: linear-gradient(135deg, #8e5b14, #c48724);
+  border-color: #e8b34c;
+  color: #fff;
+}
 
 /* ---------- 布局 ---------- */
 .layout {
@@ -75,6 +81,16 @@ body {
   top: 20px;
 }
 .sidebar h3 { font-size: 16px; margin-bottom: 14px; }
+.catalog-note {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #785a2d;
+  background: #fff8e7;
+  border: 1px solid #ecd8a9;
+  border-radius: 10px;
+  padding: 9px 10px;
+  margin: -4px 0 12px;
+}
 #lessonList { list-style: none; }
 .lesson-item {
   display: flex;
@@ -136,7 +152,7 @@ body {
   gap: 10px;
 }
 .lesson-header h2 { font-size: 22px; }
-#stepDots { display: flex; gap: 6px; }
+#stepDots { display: flex; flex-wrap: wrap; gap: 6px; }
 .dot {
   width: 26px; height: 26px;
   border-radius: 50%;
@@ -162,6 +178,18 @@ body {
   border-left: 4px solid var(--wood);
   padding: 12px 16px;
   border-radius: 0 10px 10px 0;
+}
+.video-course-kicker {
+  display: inline-block;
+  color: #9a6115;
+  background: #fff0c7;
+  border: 1px solid #efd18b;
+  border-radius: 999px;
+  padding: 2px 9px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 .objective {
   font-size: 16px;

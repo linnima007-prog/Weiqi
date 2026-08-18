@@ -11,6 +11,7 @@
   <div class="brand"><span class="logo">⚫⚪</span>围棋学堂</div>
   <nav class="tabs">
     <button class="tab active" data-mode="tutorial">📖 新手教程</button>
+    <button class="tab video-course-tab" data-mode="video">🎬 视频转课</button>
     <button class="tab" data-mode="free">🎮 自由对局</button>
   </nav>
 </header>
@@ -18,7 +19,8 @@
 <main class="layout">
   <!-- 左侧课程目录 -->
   <aside class="sidebar">
-    <h3>课程目录</h3>
+    <h3 id="catalogTitle">课程目录</h3>
+    <p id="catalogNote" class="catalog-note hidden"></p>
     <ul id="lessonList"></ul>
     <div class="progress-line">
       <div id="progressFill" class="progress-fill"></div>
@@ -103,6 +105,7 @@
 
 <script src="js/go-core.js"></script>
 <script src="js/lessons.js"></script>
+<script src="js/video-course.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/main.js"></script>
 </body>
